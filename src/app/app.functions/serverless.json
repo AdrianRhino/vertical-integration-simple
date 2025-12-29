@@ -1,0 +1,52 @@
+{
+  "appFunctions": {
+    "myFunc": {
+      "file": "example-function.js",
+      "secrets": []
+    },
+    "getTickets": {
+      "file": "getTickets.js",
+      "secrets": []
+    },
+    "getDraftOrders": {
+      "file": "getDraftOrders.js",
+      "secrets": []
+    }, 
+    "supplierProducts": {
+      "file": "suppliers/supabase/supplierProducts.js",
+      "secrets": ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
+    },
+    "abcPricing": {
+      "file": "suppliers/prices/getABCPricing.js",
+      "secrets": []
+    },
+      "beaconPricing": {
+      "file": "suppliers/prices/getBeaconPricing.js",
+      "secrets": []
+    },
+    "srsPricing": {
+      "file": "suppliers/prices/getSRSPricing.js",
+      "secrets": []
+    },
+    "getProductionTeam": {
+      "file": "getProductionTeam.js",
+      "secrets": []
+    },
+    "sendDraftToHubspot": {
+      "file": "sendDraftToHubspot.js",
+      "secrets": []
+    }, 
+    "setSubmitStatus": {
+      "file": "setSubmitStatus.js",
+      "secrets": []
+    },
+    "sendOrderToSupplier": {
+      "file": "suppliers/order/sendOrderToSupplier.js",
+      "secrets": ["HUBSPOT_API_KEY"]
+    },
+    "generateAndUploadOrderPDF": {
+      "file": "suppliers/order/generateAndUploadOrderPDF.js",
+      "secrets": ["HUBSPOT_API_KEY"]
+    }
+  }
+}

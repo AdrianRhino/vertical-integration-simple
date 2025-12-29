@@ -1,0 +1,1148 @@
+import {
+  Text,
+  Button,
+  ButtonRow,
+  Table,
+  TableHead,
+  TableRow,
+  TableHeader,
+  TableBody,
+  TableCell,
+  StepperInput,
+  Input,
+  Flex,
+  Divider,
+  Panel,
+  PanelSection,
+  PanelBody,
+  PanelFooter,
+  Heading,
+  Select,
+  StatusTag,
+  hubspot,
+  Tile,
+} from "@hubspot/ui-extensions";
+import { useState, useEffect } from "react";
+import { units } from "../helperFunctions/helper";
+import { moneyFormatter, toSentenceCase } from "../helperFunctions/helper";
+
+const PricingTable = ({
+  order,
+  setOrder,
+  runServerless,
+  setCanGoNext,
+}) => {
+  // Simple state - just arrays and objects
+  const [items, setItems] = useState([]); // Array of items
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]); // Array of products from search
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const [searchCursor, setSearchCursor] = useState(null);
+  
+  // Simple draft item for manual entry
+  const [draftItem, setDraftItem] = useState({
+    qty: "",
+    uom: "EA",
+    sku: "",
+    title: "",
+    unitPrice: "",
+  });
+
+  // Load items from order when page loads
+  useEffect(() => {
+    if (order.items && order.items.length > 0) {
+      // Normalize UOM for items loaded from order (e.g., from templates or drafts)
+      // If item has "EA" but title suggests a different UOM, infer the correct UOM
+      const normalizedItems = order.items.map(item => {
+        // If UOM is "EA" but title suggests a different UOM, update it
+        if (item.uom === "EA" && item.title) {
+          const titleUpper = item.title.toUpperCase();
+          
+          // Check for common roofing UOM patterns in title
+          if (titleUpper.includes("/SQ") || titleUpper.includes("PER SQ") || titleUpper.includes("PER SQUARE")) {
+            return {
+              ...item,
+              uom: "SQ",
+              uoms: item.uoms && item.uoms.includes("SQ") ? item.uoms : (item.uoms || []).concat(["SQ"]).filter((v, i, a) => a.indexOf(v) === i)
+            };
+          }
+          if (titleUpper.includes("/BD") || titleUpper.includes("PER BD") || titleUpper.includes("PER BUNDLE") || titleUpper.includes("BUNDLE")) {
+            return {
+              ...item,
+              uom: "BNDL",
+              uoms: item.uoms && item.uoms.includes("BNDL") ? item.uoms : (item.uoms || []).concat(["BNDL"]).filter((v, i, a) => a.indexOf(v) === i)
+            };
+          }
+          if (titleUpper.includes("ROLL") || titleUpper.includes("/RL")) {
+            return {
+              ...item,
+              uom: "RL",
+              uoms: item.uoms && item.uoms.includes("RL") ? item.uoms : (item.uoms || []).concat(["RL"]).filter((v, i, a) => a.indexOf(v) === i)
+            };
+          }
+          if (titleUpper.includes("LINEAR") || titleUpper.includes("/LF")) {
+            return {
+              ...item,
+              uom: "LF",
+              uoms: item.uoms && item.uoms.includes("LF") ? item.uoms : (item.uoms || []).concat(["LF"]).filter((v, i, a) => a.indexOf(v) === i)
+            };
+          }
+          if (titleUpper.includes("BOX") || titleUpper.includes("/BX")) {
+            return {
+              ...item,
+              uom: "BX",
+              uoms: item.uoms && item.uoms.includes("BX") ? item.uoms : (item.uoms || []).concat(["BX"]).filter((v, i, a) => a.indexOf(v) === i)
+            };
+          }
+        }
+        
+        // If item doesn't have uoms array, ensure it has at least the current UOM
+        if (!item.uoms || item.uoms.length === 0) {
+          return {
+            ...item,
+            uoms: [item.uom || "EA"]
+          };
+        }
+        
+        return item;
+      });
+      
+      setItems(normalizedItems);
+    } else if (order.templateItems && order.templateItems.length > 0) {
+      // If no items but templateItems exist, load template items
+      setItems(order.templateItems);
+    }
+  }, []);
+
+  // Save items back to order whenever items change
+  useEffect(() => {
+    setOrder((prev) => ({ ...prev, items: items }));
+    setCanGoNext(items.length > 0);
+  }, [items]);
+
+  // Automatic pricing fetch when items are added/changed (AccuLynx behavior)
+  useEffect(() => {
+    const supplier = (order.supplier || "").toLowerCase();
+    
+    // Only auto-fetch for ABC supplier
+    if (supplier !== "abc") return;
+    
+    // Only fetch if there are items
+    if (!items || items.length === 0) return;
+    
+    // Check if any items need pricing
+    const needsPricing = items.some(item => !item.pricingFetched && !item.pricingError);
+    
+    if (!needsPricing) return;
+    
+    // Debounce: wait 500ms after last change before fetching
+    const timeoutId = setTimeout(() => {
+      console.log("🔄 Auto-fetching pricing for ABC items (AccuLynx behavior)");
+      getPricing();
+    }, 500);
+    
+    return () => clearTimeout(timeoutId);
+  }, [items, order.supplier]);
+
+  // Simple function to search products
+  const searchProducts = async (query) => {
+    if (!order.supplier) {
+      setSearchResults([]);
+      setSearchError("Please select a supplier first");
+      return;
+    }
+
+    setIsSearching(true);
+    setSearchError(null);
+
+    try {
+      const supplierKey = (order.supplier || "").toUpperCase();
+      const response = await runServerless({
+        name: "supplierProducts",
+        parameters: {
+          supplier: supplierKey,
+          q: query ? query.trim() : "", // Allow empty query for "all products"
+          pageSize: 50,
+        },
+      });
+      
+      console.log("Search response:", response); // Debug log
+
+      // Extract items from response - handle HubSpot's response wrapper
+      let body;
+      if (response?.response) {
+        // HubSpot wraps: { response: { body: { statusCode, body: {...} } } }
+        const responseBody = response.response;
+        if (responseBody.body) {
+          // Check if body has nested body structure
+          if (responseBody.body.body) {
+            body = responseBody.body.body;
+          } else {
+            // Direct body structure
+            body = responseBody.body;
+          }
+        } else {
+          body = responseBody;
+        }
+      } else if (response?.body) {
+        body = response.body;
+      } else {
+        body = response || {};
+      }
+
+      console.log("Extracted body:", body); // Debug log
+      const products = body.items || body.products || [];
+      console.log("Products found:", products.length); // Debug log
+      
+      if (!body.success && body.error) {
+        setSearchError(body.error);
+        setSearchResults([]);
+      } else {
+        setSearchResults(products);
+        setSearchCursor(body.nextCursor || null);
+      }
+    } catch (error) {
+      console.error("Search error:", error);
+      setSearchError(error.message || "Search failed");
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Simple function to load more results
+  const loadMoreResults = async () => {
+    if (!searchCursor || !order.supplier || !searchQuery) return;
+
+    setIsSearching(true);
+    try {
+      const supplierKey = (order.supplier || "").toUpperCase();
+      const response = await runServerless({
+        name: "supplierProducts",
+        parameters: {
+          supplier: supplierKey,
+          q: searchQuery.trim(),
+          pageSize: 50,
+          cursor: JSON.stringify(searchCursor),
+        },
+      });
+
+      // Extract items from response - handle HubSpot's response wrapper
+      let body;
+      if (response?.response?.body) {
+        const responseBody = response.response.body;
+        if (responseBody.body) {
+          body = responseBody.body;
+        } else {
+          body = responseBody;
+        }
+      } else if (response?.body) {
+        body = response.body;
+      } else {
+        body = response || {};
+      }
+
+      const newProducts = body.items || body.products || [];
+
+      // Simple: add new products to existing list
+      setSearchResults((prev) => [...prev, ...newProducts]);
+      setSearchCursor(body.nextCursor || null);
+    } catch (error) {
+      console.error("Load more error:", error);
+      setSearchError(error.message || "Failed to load more");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Simple function to get product title (check all possible name fields)
+  const getProductTitle = (product) => {
+    if (!product || typeof product !== "object") {
+      return "Unnamed Product";
+    }
+
+    // Get supplier-specific priority fields based on config
+    const supplier = (order.supplier || "").toUpperCase();
+    let priorityFields = [];
+    
+    if (supplier === "ABC") {
+      priorityFields = ["familyname", "itemdescription", "familyName", "itemDescription", "item_description"];
+    } else if (supplier === "SRS") {
+      // For SRS, prioritize productName and title over description fields
+      priorityFields = ["productName", "product_name", "title", "name", "familyName", "family_name", "marketingDescription", "productDescription", "description", "marketing_description", "product_description"];
+    } else if (supplier === "BEACON") {
+      priorityFields = ["marketingdescription", "familyname", "itemdescription", "description", "marketingDescription", "familyName", "itemDescription", "marketing_description", "family_name", "item_description"];
+    }
+
+    // Check priority fields first (supplier-specific)
+    for (let i = 0; i < priorityFields.length; i++) {
+      const field = priorityFields[i];
+      const value = product[field];
+      if (value && typeof value === "string" && value.trim() !== "") {
+        return value.trim();
+      }
+    }
+
+    // Check common fields (case-insensitive)
+    const commonFields = ["title", "productName", "product_name", "familyName", "family_name", "baseProductName", "name", "description", "itemdescription", "item_description", "marketingDescription", "marketing_description", "productDescription", "product_description"];
+    for (let i = 0; i < commonFields.length; i++) {
+      const field = commonFields[i];
+      const value = product[field];
+      if (value && typeof value === "string" && value.trim() !== "") {
+        return value.trim();
+      }
+    }
+
+    // Check all product keys dynamically (case-insensitive match)
+    const productKeys = Object.keys(product);
+    const namePatterns = ["name", "title", "description", "family"];
+    
+    for (let i = 0; i < productKeys.length; i++) {
+      const key = productKeys[i];
+      const lowerKey = key.toLowerCase();
+      const value = product[key];
+      
+      // Check if key contains name/title/description patterns
+      if (value && typeof value === "string" && value.trim() !== "") {
+        for (let j = 0; j < namePatterns.length; j++) {
+          if (lowerKey.includes(namePatterns[j]) && !lowerKey.includes("sku") && !lowerKey.includes("id") && !lowerKey.includes("number")) {
+            return value.trim();
+          }
+        }
+      }
+    }
+
+    // Last resort: return first non-empty string value that's not a SKU/ID
+    for (let i = 0; i < productKeys.length; i++) {
+      const key = productKeys[i];
+      const lowerKey = key.toLowerCase();
+      const value = product[key];
+      
+      if (value && typeof value === "string" && value.trim() !== "" && 
+          !lowerKey.includes("sku") && !lowerKey.includes("id") && 
+          !lowerKey.includes("number") && !lowerKey.includes("price") &&
+          !lowerKey.includes("supplier") && !lowerKey.includes("created") &&
+          !lowerKey.includes("updated") && value.trim().length > 3) {
+        return value.trim();
+      }
+    }
+
+    // Debug: log product keys if no name found
+    console.warn("No product name found, available keys:", productKeys);
+    return "Unnamed Product";
+  };
+
+  // Simple function to get product SKU
+  const getProductSku = (product) => {
+    const fields = ["sku", "itemNumber", "productId", "product_id"];
+    for (let i = 0; i < fields.length; i++) {
+      const value = product[fields[i]];
+      if (value) {
+        return String(value).trim();
+      }
+    }
+    return "";
+  };
+
+  // Helper function to extract UOM from product data
+  const getProductUom = (product) => {
+    // Try direct UOM fields first
+    const uomFields = ["uom", "unitOfMeasure", "unit_of_measure", "defaultUom", "defaultUOM"];
+    for (let i = 0; i < uomFields.length; i++) {
+      const value = product[uomFields[i]];
+      if (value && typeof value === "string" && value.trim()) {
+        return value.trim().toUpperCase();
+      }
+    }
+    
+    // Try to infer from product title (e.g., "3 BD/SQ" → "SQ" or "BD")
+    const title = getProductTitle(product);
+    if (title) {
+      const titleUpper = title.toUpperCase();
+      
+      // Check for common roofing UOM patterns
+      if (titleUpper.includes("/SQ") || titleUpper.includes("PER SQ") || titleUpper.includes("PER SQUARE")) {
+        return "SQ";
+      }
+      if (titleUpper.includes("/BD") || titleUpper.includes("PER BD") || titleUpper.includes("PER BUNDLE") || titleUpper.includes("BUNDLE")) {
+        return "BNDL";
+      }
+      if (titleUpper.includes("ROLL") || titleUpper.includes("/RL")) {
+        return "RL";
+      }
+      if (titleUpper.includes("LINEAR") || titleUpper.includes("/LF")) {
+        return "LF";
+      }
+      if (titleUpper.includes("BOX") || titleUpper.includes("/BX")) {
+        return "BX";
+      }
+    }
+    
+    // Default to EA
+    return "EA";
+  };
+
+  // Helper function to get available UOMs from product data
+  const getProductUoms = (product) => {
+    // Try to get available UOMs array
+    const uomsFields = ["uoms", "availableUoms", "availableUOMs", "unitOfMeasures", "unitsOfMeasure"];
+    for (let i = 0; i < uomsFields.length; i++) {
+      const value = product[uomsFields[i]];
+      if (Array.isArray(value) && value.length > 0) {
+        return value.map(u => String(u).toUpperCase().trim()).filter(Boolean);
+      }
+    }
+    
+    // If no array found, use the default UOM
+    const defaultUom = getProductUom(product);
+    return [defaultUom, "EA"].filter((v, i, a) => a.indexOf(v) === i); // Remove duplicates
+  };
+
+  // Simple function to add product to items
+  const addProduct = (product) => {
+    const title = getProductTitle(product);
+    const sku = getProductSku(product);
+    
+    if (!sku) {
+      console.error("Cannot add product: no SKU found");
+      return;
+    }
+
+    // Simple: check if item already exists (by SKU)
+    let foundIndex = -1;
+    for (let i = 0; i < items.length; i++) {
+      if (String(items[i].sku).toLowerCase() === String(sku).toLowerCase()) {
+        foundIndex = i;
+        break;
+      }
+    }
+
+    // Extract UOM information from product
+    const defaultUom = getProductUom(product);
+    const availableUoms = getProductUoms(product);
+    
+    console.log(`📦 Adding product ${sku}: defaultUom=${defaultUom}, availableUoms=`, availableUoms);
+
+    const newItem = {
+      qty: 1,
+      uom: defaultUom,
+      sku: sku,
+      title: title,
+      unitPrice: 0,
+      linePrice: 0,
+      uoms: availableUoms.length > 0 ? availableUoms : ["EA"],
+      pricingFetched: false,
+      pricingError: null,
+    };
+
+    if (foundIndex >= 0) {
+      // Item exists - just increase quantity
+      const updatedItems = [...items];
+      updatedItems[foundIndex] = {
+        ...updatedItems[foundIndex],
+        qty: (Number(updatedItems[foundIndex].qty) || 0) + 1,
+      };
+      setItems(updatedItems);
+    } else {
+      // New item - add to list
+      setItems([...items, newItem]);
+    }
+  };
+
+  // Simple function to update item quantity
+  const updateQuantity = (index, newQty) => {
+    const updatedItems = [...items];
+    updatedItems[index] = {
+      ...updatedItems[index],
+      qty: newQty,
+      linePrice: (Number(newQty) || 0) * (Number(updatedItems[index].unitPrice) || 0),
+    };
+    setItems(updatedItems);
+  };
+
+  // Simple function to update item UOM
+  const updateUom = (index, newUom) => {
+    const updatedItems = [...items];
+    updatedItems[index] = {
+      ...updatedItems[index],
+      uom: newUom,
+    };
+    setItems(updatedItems);
+  };
+
+  // Simple function to remove item
+  const removeItem = (index) => {
+    const updatedItems = [];
+    for (let i = 0; i < items.length; i++) {
+      if (i !== index) {
+        updatedItems.push(items[i]);
+      }
+    }
+    setItems(updatedItems);
+  };
+
+  // Simple function to add manual line item
+  const addManualItem = () => {
+    if (!draftItem.sku || Number(draftItem.qty) <= 0) {
+      return;
+    }
+
+    const newItem = {
+      qty: Number(draftItem.qty) || 1,
+      uom: draftItem.uom || "EA",
+      sku: draftItem.sku.trim(),
+      title: draftItem.title.trim() || "Custom Item",
+      unitPrice: Number(draftItem.unitPrice) || 0,
+      linePrice: (Number(draftItem.qty) || 1) * (Number(draftItem.unitPrice) || 0),
+      uoms: ["EA"],
+      pricingFetched: false,
+      pricingError: null,
+    };
+
+    // Check if SKU already exists
+    let foundIndex = -1;
+    for (let i = 0; i < items.length; i++) {
+      if (String(items[i].sku).toLowerCase() === String(newItem.sku).toLowerCase()) {
+        foundIndex = i;
+        break;
+      }
+    }
+
+    if (foundIndex >= 0) {
+      // Merge quantities
+      const updatedItems = [...items];
+      updatedItems[foundIndex] = {
+        ...updatedItems[foundIndex],
+        qty: (Number(updatedItems[foundIndex].qty) || 0) + newItem.qty,
+        unitPrice: newItem.unitPrice > 0 ? newItem.unitPrice : updatedItems[foundIndex].unitPrice,
+        title: newItem.title || updatedItems[foundIndex].title,
+      };
+      updatedItems[foundIndex].linePrice = updatedItems[foundIndex].qty * updatedItems[foundIndex].unitPrice;
+      setItems(updatedItems);
+    } else {
+      setItems([...items, newItem]);
+    }
+
+    // Clear draft
+    setDraftItem({ qty: "", uom: "EA", sku: "", title: "", unitPrice: "" });
+  };
+
+  // Simple function to calculate total
+  const calculateTotal = () => {
+    let total = 0;
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const qty = Number(item.qty) || 0;
+      const price = Number(item.unitPrice) || 0;
+      total = total + qty * price;
+    }
+    return total;
+  };
+
+  // Helper function to extract nested value from response (handles HubSpot wrapping)
+  const extractNestedValue = (response, dataPath) => {
+    if (!response) return undefined;
+    
+    // Try multiple response paths to handle different HubSpot wrapping patterns
+    const paths = [
+      `response.body.${dataPath}`,
+      `response.${dataPath}`,
+      `response.response.body.${dataPath}`,
+      `response.response.${dataPath}`,
+      `body.${dataPath}`,
+      dataPath
+    ];
+    
+    for (let i = 0; i < paths.length; i++) {
+      const path = paths[i];
+      const parts = path.split('.');
+      let value = response;
+      let found = true;
+      
+      for (let j = 0; j < parts.length; j++) {
+        if (value && typeof value === 'object' && parts[j] in value) {
+          value = value[parts[j]];
+        } else {
+          found = false;
+          break;
+        }
+      }
+      
+      if (found && value !== undefined && value !== null) {
+        return value;
+      }
+    }
+    
+    return undefined;
+  };
+
+  // Helper function to extract price from item (tries multiple field names)
+  const extractPrice = (item) => {
+    if (!item || typeof item !== 'object') return null;
+    
+    const priceFields = [
+      'unitPrice',
+      'price',
+      'unit_price',
+      'unitPriceValue',
+      'pricePerUnit',
+      'listPrice',
+      'salePrice'
+    ];
+    
+    for (let i = 0; i < priceFields.length; i++) {
+      const field = priceFields[i];
+      const value = item[field];
+      if (value !== undefined && value !== null) {
+        const numValue = parseFloat(value);
+        if (!isNaN(numValue) && numValue > 0) {
+          return numValue;
+        }
+      }
+    }
+    
+    return null;
+  };
+
+  // Simple function to get pricing
+  const getPricing = async () => {
+    const supplier = (order.supplier || "").toLowerCase();
+    if (!supplier) return;
+
+    // Transform order structure: pricing functions expect fullOrder.fullOrderItems
+    const fullOrder = {
+      ...order,
+      fullOrderItems: order.items || []
+    };
+
+    let response;
+    try {
+      if (supplier === "abc") {
+        response = await runServerless({
+          name: "abcPricing",
+          parameters: { fullOrder: fullOrder },
+        });
+        updatePricesFromABC(response);
+      } else if (supplier === "srs") {
+        response = await runServerless({
+          name: "srsPricing",
+          parameters: { fullOrder: fullOrder },
+        });
+        updatePricesFromSRS(response);
+      } else if (supplier === "beacon") {
+        response = await runServerless({
+          name: "beaconPricing",
+          parameters: { fullOrder: fullOrder },
+        });
+        updatePricesFromBeacon(response);
+      }
+    } catch (error) {
+      console.error("Pricing error:", error);
+    }
+  };
+
+  // Simple function to update prices from ABC response
+  const updatePricesFromABC = (response) => {
+    // Debug: Log full response structure
+    console.log("🔍 ABC Pricing Response (full):", JSON.stringify(response, null, 2));
+    
+    // Try multiple response paths to extract price data
+    const priceData = extractNestedValue(response, 'data.lines') || 
+                      extractNestedValue(response, 'lines') || 
+                      [];
+    
+    console.log("📊 Extracted priceData:", priceData);
+    console.log("📊 PriceData length:", priceData.length);
+    
+    if (priceData.length > 0) {
+      console.log("📊 First price item structure:", JSON.stringify(priceData[0], null, 2));
+      console.log("📊 First price item keys:", Object.keys(priceData[0] || {}));
+    }
+
+    const updatedItems = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      let found = false;
+
+      // Simple loop to find matching price
+      for (let j = 0; j < priceData.length; j++) {
+        const priceItem = priceData[j];
+        
+        // Try multiple SKU field names for matching
+        const skuMatch = priceItem.itemNumber === item.sku || 
+                        priceItem.itemNumber === String(item.sku) ||
+                        priceItem.sku === item.sku ||
+                        priceItem.sku === String(item.sku);
+        
+        if (skuMatch) {
+          found = true;
+          console.log(`✅ Found match for SKU ${item.sku}:`, JSON.stringify(priceItem, null, 2));
+          
+          // Check for error status
+          if (priceItem.status && priceItem.status.code === "Error") {
+            console.log(`❌ Error status for SKU ${item.sku}:`, priceItem.status.message);
+            updatedItems.push({
+              ...item,
+              pricingError: priceItem.status.message,
+            });
+          } else {
+            // Try to extract price using multiple field names
+            const extractedPrice = extractPrice(priceItem);
+            
+            if (extractedPrice !== null && extractedPrice > 0) {
+              console.log(`💰 Price found for SKU ${item.sku} (UOM ${item.uom}): $${extractedPrice}`);
+              
+              // Check if response includes UOM info and update if different
+              const responseUom = priceItem.uom || priceItem.unitOfMeasure || priceItem.unit_of_measure;
+              const finalUom = responseUom ? String(responseUom).toUpperCase().trim() : item.uom;
+              
+              // Update available UOMs if response provides them
+              let availableUoms = item.uoms || ["EA"];
+              if (priceItem.availableUoms && Array.isArray(priceItem.availableUoms)) {
+                availableUoms = priceItem.availableUoms.map(u => String(u).toUpperCase().trim());
+              } else if (responseUom && !availableUoms.includes(finalUom)) {
+                availableUoms = [...availableUoms, finalUom];
+              }
+              
+              updatedItems.push({
+                ...item,
+                unitPrice: extractedPrice,
+                uom: finalUom, // Use UOM from response if available
+                uoms: availableUoms,
+                linePrice: item.qty * extractedPrice,
+                pricingError: null,
+                pricingFetched: true,
+              });
+            } else {
+              console.log(`⚠️ No valid price found for SKU ${item.sku}, priceItem:`, JSON.stringify(priceItem, null, 2));
+              updatedItems.push({
+                ...item,
+                pricingError: "Price unavailable",
+              });
+            }
+          }
+          break;
+        }
+      }
+
+      if (!found) {
+        console.log(`❌ SKU ${item.sku} not found in priceData`);
+        updatedItems.push({
+          ...item,
+          pricingError: "SKU not found",
+        });
+      }
+    }
+
+    console.log("✅ Updated items:", updatedItems.length);
+    setItems(updatedItems);
+  };
+
+  // Simple function to update prices from SRS response
+  const updatePricesFromSRS = (response) => {
+    if (!response.success || response.response?.error) {
+      // Mark all as needing pricing
+      const updatedItems = [];
+      for (let i = 0; i < items.length; i++) {
+        updatedItems.push({
+          ...items[i],
+          pricingError: "SKU not found - call for pricing",
+        });
+      }
+      setItems(updatedItems);
+      return;
+    }
+
+    const priceData = response?.response?.data?.productList || [];
+    const updatedItems = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      let found = false;
+
+      for (let j = 0; j < priceData.length; j++) {
+        if (priceData[j].productId === item.sku) {
+          found = true;
+          if (priceData[j].error || (priceData[j].unitPrice === 0 && priceData[j].message)) {
+            updatedItems.push({
+              ...item,
+              pricingError: "SKU not found - call for pricing",
+            });
+          } else if (priceData[j].unitPrice && priceData[j].unitPrice > 0) {
+            updatedItems.push({
+              ...item,
+              unitPrice: priceData[j].unitPrice,
+              linePrice: item.qty * priceData[j].unitPrice,
+              pricingError: null,
+              pricingFetched: true,
+            });
+          } else {
+            updatedItems.push({
+              ...item,
+              pricingError: "Price unavailable",
+            });
+          }
+          break;
+        }
+      }
+
+      if (!found) {
+        updatedItems.push({
+          ...item,
+          pricingError: "SKU not found - call for pricing",
+        });
+      }
+    }
+
+    setItems(updatedItems);
+  };
+
+  // Simple function to update prices from Beacon response
+  const updatePricesFromBeacon = (response) => {
+    console.log("🔍 Beacon Pricing Response (full):", JSON.stringify(response, null, 2));
+    
+    const beaconData = response?.data || {};
+    const priceInfo = beaconData?.priceInfo || {};
+    console.log("📊 Beacon priceInfo:", priceInfo);
+    
+    const updatedItems = [];
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      const baseSku = item.sku.split(" - ")[0].trim();
+      
+      // Try exact match, then base SKU
+      let itemPriceInfo = priceInfo[item.sku] || priceInfo[baseSku];
+
+      if (itemPriceInfo) {
+        console.log(`✅ Found priceInfo for SKU ${item.sku}:`, itemPriceInfo);
+        
+        // Get all available UOMs from priceInfo (keys are UOM codes)
+        const availableUoms = Object.keys(itemPriceInfo).filter(uom => {
+          const price = itemPriceInfo[uom];
+          return price !== undefined && price !== null && price !== "";
+        });
+        
+        console.log(`📊 Available UOMs for SKU ${item.sku}:`, availableUoms);
+        
+        // Try exact UOM, then first available
+        let unitPrice = itemPriceInfo[item.uom];
+        let matchedUom = item.uom;
+
+        if (!unitPrice || unitPrice === 0) {
+          if (availableUoms.length > 0) {
+            matchedUom = availableUoms[0];
+            unitPrice = itemPriceInfo[matchedUom];
+            console.log(`⚠️ UOM "${item.uom}" not found or price is 0, using "${matchedUom}" instead`);
+          }
+        }
+
+        if (unitPrice && unitPrice > 0) {
+          console.log(`💰 Price found for SKU ${item.sku} (UOM ${matchedUom}): $${unitPrice}`);
+          updatedItems.push({
+            ...item,
+            unitPrice: unitPrice,
+            uom: matchedUom,
+            // Update available UOMs with what's actually available from pricing
+            uoms: availableUoms.length > 0 ? availableUoms : item.uoms || ["EA"],
+            linePrice: item.qty * unitPrice,
+            pricingError: null,
+            pricingFetched: true,
+          });
+        } else {
+          console.log(`⚠️ No valid price found for SKU ${item.sku}`);
+          updatedItems.push({
+            ...item,
+            pricingError: "SKU not found - call for pricing",
+          });
+        }
+      } else {
+        console.log(`❌ No priceInfo found for SKU ${item.sku} (tried ${item.sku} and ${baseSku})`);
+        updatedItems.push({
+          ...item,
+          pricingError: "SKU not found - call for pricing",
+        });
+      }
+    }
+
+    console.log("✅ Updated items:", updatedItems.length);
+    setItems(updatedItems);
+  };
+
+  // Search when query changes (with delay)
+  useEffect(() => {
+    if (!searchQuery || !order.supplier) {
+      setSearchResults([]);
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      searchProducts(searchQuery);
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery, order.supplier]);
+
+  const totalPrice = calculateTotal();
+
+  return (
+    <>
+      <Text>Price Table</Text>
+      <Text></Text>
+      <Table bordered={true} paginated={false}>
+        <TableHead>
+          <TableRow>
+            <TableHeader width="min">Quantity</TableHeader>
+            <TableHeader width="min">U/M</TableHeader>
+            <TableHeader width="min">SKU</TableHeader>
+            <TableHeader width="min">Title</TableHeader>
+            <TableHeader width="min">Variant</TableHeader>
+            <TableHeader width="min">Unit Price</TableHeader>
+            <TableHeader width="min">Line Price</TableHeader>
+            <TableHeader width="min">Status</TableHeader>
+            <TableHeader width="min">Delete</TableHeader>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {items.map((line, idx) => (
+            <TableRow key={idx}>
+              <TableCell width="min">
+                <StepperInput
+                  min={1}
+                  max={999}
+                  label=""
+                  name="itemField"
+                  value={line.qty}
+                  stepSize={1}
+                  onChange={(value) => {
+                    updateQuantity(idx, value);
+                  }}
+                />
+              </TableCell>
+              <TableCell width="min">
+                <Select
+                  value={line.uom}
+                  options={(() => {
+                    // Always show all available units from helper for maximum flexibility
+                    const allUnits = Object.keys(units).map((code) => ({
+                      label: units[code]?.label || code,
+                      value: code,
+                      tooltip: units[code]?.toolTip || code,
+                    }));
+                    
+                    // Optionally prioritize product-specific UOMs by moving them to the top
+                    const productUoms = line.uoms || [];
+                    if (productUoms.length > 0) {
+                      const productUnits = [];
+                      const otherUnits = [];
+                      
+                      allUnits.forEach(unit => {
+                        if (productUoms.includes(unit.value)) {
+                          productUnits.push(unit);
+                        } else {
+                          otherUnits.push(unit);
+                        }
+                      });
+                      
+                      // Return product-specific units first, then others
+                      return [...productUnits, ...otherUnits];
+                    }
+                    
+                    return allUnits;
+                  })()}
+                  onChange={(newUom) => {
+                    updateUom(idx, newUom);
+                  }}
+                />
+              </TableCell>
+              <TableCell width="min">
+                <Text variant="microcopy">{line.sku}</Text>
+              </TableCell>
+              <TableCell width="min">
+                <Text variant="microcopy">{line.title}</Text>
+              </TableCell>
+              <TableCell width="min">
+                <Text variant="microcopy">{line.variant || "-"}</Text>
+              </TableCell>
+              <TableCell width="min">
+                <Text variant="microcopy">
+                  ${moneyFormatter("unitPrice", line.unitPrice)}/{line.qty}
+                </Text>
+              </TableCell>
+              <TableCell width="min">
+                <Text variant="microcopy">
+                  ${moneyFormatter("linePrice", line.unitPrice, line.qty)}
+                </Text>
+              </TableCell>
+              <TableCell width="min">
+                {line.pricingError ? (
+                  <StatusTag variant="danger">Call</StatusTag>
+                ) : line.pricingFetched ? (
+                  <StatusTag variant="success">Priced</StatusTag>
+                ) : (
+                  <StatusTag variant="default">Not yet priced</StatusTag>
+                )}
+              </TableCell>
+              <TableCell width="min">
+                <Button onClick={() => removeItem(idx)}>X</Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+      <Text></Text>
+      <Divider />
+      <Text></Text>
+      <Flex direction={"row"} gap={"small"}>
+        <Button variant="secondary" onClick={getPricing}>
+          {`Get ${toSentenceCase(order.supplier || "")} Pricing`}
+        </Button>
+        <Flex justify="end" gap="xs">
+          <Heading>Price: </Heading>
+          <Heading>${totalPrice.toFixed(2)}</Heading>
+        </Flex>
+      </Flex>
+      <Text></Text>
+      <Text>Add Custom Line Item</Text>
+      <Flex direction={"row"} gap={"small"}>
+        <Input
+          label="Quantity:"
+          value={draftItem.qty}
+          onChange={(value) => setDraftItem((prev) => ({ ...prev, qty: value }))}
+        />
+        <Select
+          label="U/M:"
+          value={draftItem.uom}
+          options={Object.keys(units).map((code) => ({
+            label: units[code]?.label || code,
+            value: code,
+            tooltip: units[code]?.toolTip || code,
+          }))}
+          onChange={(value) => setDraftItem((prev) => ({ ...prev, uom: value }))}
+        />
+        <Input
+          label="SKU:"
+          value={draftItem.sku}
+          onChange={(value) => setDraftItem((prev) => ({ ...prev, sku: value }))}
+        />
+        <Input
+          label="Title:"
+          value={draftItem.title}
+          onChange={(value) => setDraftItem((prev) => ({ ...prev, title: value }))}
+        />
+        <Input
+          label="Unit Price:"
+          value={draftItem.unitPrice}
+          onChange={(value) => setDraftItem((prev) => ({ ...prev, unitPrice: value }))}
+        />
+      </Flex>
+      <Text></Text>
+      <Button variant="secondary" onClick={addManualItem}>
+        + Add Line Item
+      </Button>
+
+      <Text></Text>
+      <Divider />
+      <Text></Text>
+
+      <Text>Search Products</Text>
+      <Text></Text>
+      <Flex direction={"row"} gap={"small"}>
+        <Button
+          variant="secondary"
+          onClick={() => {
+            // Trigger search when button is clicked - show all products if no query
+            if (!searchQuery || searchQuery.length < 2) {
+              searchProducts(""); // Empty query shows recent products
+            } else {
+              searchProducts(searchQuery);
+            }
+          }}
+          disabled={isSearching || !order.supplier}
+          overlay={
+            <Panel id="my-panel" title="Search Products">
+              <PanelBody>
+                <PanelSection>
+                  <Text>Search for products from your supplier catalog:</Text>
+                  <Input
+                    label="Search Query"
+                    value={searchQuery || ""}
+                    onChange={(value) => setSearchQuery(value)}
+                    placeholder="Enter SKU, product name, or keywords... (leave empty for all products)"
+                  />
+                  <Text></Text>
+                  <Button
+                    variant="primary"
+                    onClick={() => {
+                      if (searchQuery && searchQuery.length >= 2) {
+                        searchProducts(searchQuery);
+                      } else {
+                        searchProducts(""); // Show all/recent products
+                      }
+                    }}
+                    disabled={isSearching || !order.supplier}
+                  >
+                    {isSearching ? "Searching..." : searchQuery && searchQuery.length >= 2 ? "Search" : "Show All Products"}
+                  </Button>
+                  <Text></Text>
+                  {isSearching && <Text variant="microcopy">Searching...</Text>}
+                  {searchError && (
+                    <Text variant="microcopy" style={{ color: "#c0392b" }}>
+                      {searchError}
+                    </Text>
+                  )}
+                  {!isSearching && searchResults.length === 0 && (searchQuery || searchQuery === "") && (
+                    <Text variant="microcopy">No products found. Try a different search.</Text>
+                  )}
+
+                  <Text></Text>
+                  <Text>Results:</Text>
+                  {searchResults.map((product, index) => {
+                    const title = getProductTitle(product);
+                    const sku = getProductSku(product);
+                    const description = product.description || product.marketingDescription || "";
+
+                    return (
+                      <Tile key={product.id || index} compact={true}>
+                        <Flex direction="row" justify="between">
+                          <Flex direction="column" gap="xs">
+                            <Text variant="microcopy">{title}</Text>
+                            <Text variant="microcopy">{`SKU: ${sku}`}</Text>
+                            {description && (
+                              <Text variant="microcopy">
+                                {description.length > 50 ? description.substring(0, 50) + "..." : description}
+                              </Text>
+                            )}
+                          </Flex>
+                          <Button onClick={() => addProduct(product)}>Add</Button>
+                        </Flex>
+                      </Tile>
+                    );
+                  })}
+                  <Text></Text>
+                  {searchCursor && (
+                    <Button
+                      variant="secondary"
+                      onClick={loadMoreResults}
+                      disabled={isSearching}
+                    >
+                      {isSearching ? "Loading…" : "Load more"}
+                    </Button>
+                  )}
+                </PanelSection>
+              </PanelBody>
+              <PanelFooter></PanelFooter>
+            </Panel>
+          }
+        >
+          Search All Products
+        </Button>
+      </Flex>
+      <Text></Text>
+    </>
+  );
+};
+
+export default PricingTable;

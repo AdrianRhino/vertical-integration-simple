@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@hubspot/ui-extensions": "^0.11.5",
+    "@supabase/supabase-js": "^2.88.0",
+    "axios": "^1.13.2",
+    "pdfkit": "^0.17.2"
+  }
+}
