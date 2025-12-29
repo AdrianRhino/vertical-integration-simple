@@ -300,8 +300,8 @@ const PricingTable = ({
     if (supplier === "ABC") {
       priorityFields = ["familyname", "itemdescription", "familyName", "itemDescription", "item_description"];
     } else if (supplier === "SRS") {
-      // For SRS, prioritize productName and title over description fields
-      priorityFields = ["productName", "product_name", "title", "name", "familyName", "family_name", "marketingDescription", "productDescription", "description", "marketing_description", "product_description"];
+      // For SRS, prioritize productName and title fields, EXCLUDE description fields
+      priorityFields = ["productName", "product_name", "title", "name", "familyName", "family_name", "baseProductName", "base_product_name"];
     } else if (supplier === "BEACON") {
       priorityFields = ["marketingdescription", "familyname", "itemdescription", "description", "marketingDescription", "familyName", "itemDescription", "marketing_description", "family_name", "item_description"];
     }
@@ -310,24 +310,39 @@ const PricingTable = ({
     for (let i = 0; i < priorityFields.length; i++) {
       const field = priorityFields[i];
       const value = product[field];
-      if (value && typeof value === "string" && value.trim() !== "") {
+      // ✅ Only use string values, skip arrays/objects/JSON strings
+      if (value && typeof value === "string" && value.trim() !== "" && 
+          !Array.isArray(value) && typeof value !== "object" &&
+          !value.trim().startsWith("[") && !value.trim().startsWith("{")) {
         return value.trim();
       }
     }
 
-    // Check common fields (case-insensitive)
-    const commonFields = ["title", "productName", "product_name", "familyName", "family_name", "baseProductName", "name", "description", "itemdescription", "item_description", "marketingDescription", "marketing_description", "productDescription", "product_description"];
+    // Check common fields (case-insensitive) - but exclude description for SRS
+    const commonFields = ["title", "productName", "product_name", "familyName", "family_name", "baseProductName", "name"];
+    
+    // Only add description fields if NOT SRS
+    if (supplier !== "SRS") {
+      commonFields.push("description", "itemdescription", "item_description", "marketingDescription", "marketing_description", "productDescription", "product_description");
+    }
+    
     for (let i = 0; i < commonFields.length; i++) {
       const field = commonFields[i];
       const value = product[field];
-      if (value && typeof value === "string" && value.trim() !== "") {
+      // ✅ Only use string values, skip arrays/objects/JSON strings
+      if (value && typeof value === "string" && value.trim() !== "" && 
+          !Array.isArray(value) && typeof value !== "object" &&
+          !value.trim().startsWith("[") && !value.trim().startsWith("{")) {
         return value.trim();
       }
     }
 
     // Check all product keys dynamically (case-insensitive match)
     const productKeys = Object.keys(product);
-    const namePatterns = ["name", "title", "description", "family"];
+    // For SRS, exclude description patterns; for others, include them
+    const namePatterns = supplier === "SRS" 
+      ? ["name", "title", "family"]  // Exclude "description" for SRS
+      : ["name", "title", "description", "family"];
     
     for (let i = 0; i < productKeys.length; i++) {
       const key = productKeys[i];
@@ -335,9 +350,22 @@ const PricingTable = ({
       const value = product[key];
       
       // Check if key contains name/title/description patterns
-      if (value && typeof value === "string" && value.trim() !== "") {
+      // ✅ Only use string values, skip arrays/objects/JSON strings
+      if (value && typeof value === "string" && value.trim() !== "" && 
+          !Array.isArray(value) && typeof value !== "object" &&
+          !value.trim().startsWith("[") && !value.trim().startsWith("{")) {
         for (let j = 0; j < namePatterns.length; j++) {
           if (lowerKey.includes(namePatterns[j]) && !lowerKey.includes("sku") && !lowerKey.includes("id") && !lowerKey.includes("number")) {
+            // For SRS, explicitly exclude description fields and option/variant fields
+            if (supplier === "SRS") {
+              if (lowerKey.includes("description")) {
+                continue; // Skip description fields for SRS
+              }
+              // Skip variant/option fields that might contain arrays
+              if (lowerKey.includes("variant") || lowerKey.includes("option") || lowerKey.includes("productoption")) {
+                continue;
+              }
+            }
             return value.trim();
           }
         }
@@ -350,11 +378,16 @@ const PricingTable = ({
       const lowerKey = key.toLowerCase();
       const value = product[key];
       
+      // ✅ Only use string values, skip arrays/objects/JSON strings and variant/option fields
       if (value && typeof value === "string" && value.trim() !== "" && 
+          !Array.isArray(value) && typeof value !== "object" &&
+          !value.trim().startsWith("[") && !value.trim().startsWith("{") &&
           !lowerKey.includes("sku") && !lowerKey.includes("id") && 
           !lowerKey.includes("number") && !lowerKey.includes("price") &&
           !lowerKey.includes("supplier") && !lowerKey.includes("created") &&
-          !lowerKey.includes("updated") && value.trim().length > 3) {
+          !lowerKey.includes("updated") && 
+          !lowerKey.includes("variant") && !lowerKey.includes("option") &&
+          value.trim().length > 3) {
         return value.trim();
       }
     }
