@@ -347,7 +347,7 @@ useEffect(() => {
         )}
       </ButtonRow>
       <Text></Text>
-      <Text></Text>
+      <Text> </Text>
     </>
   );
 };
