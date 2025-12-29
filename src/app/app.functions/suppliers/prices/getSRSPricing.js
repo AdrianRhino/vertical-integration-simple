@@ -71,12 +71,13 @@ exports.main = async (context = {}) => {
                 .filter(option => option !== undefined && option !== null && `${option}`.trim() !== "")
                 .map(option => `${option}`.trim());
 
+            // ✅ Normalize quantities and UOMs for accurate pricing
             const payloadItem = {
                 productId: hasNumericProductId ? parsedProductId : undefined,
                 productName: item.title || item.productName || item.name || "",
                 productOptions: normalizedOptions.length > 0 ? normalizedOptions : ["N/A"],
-                quantity: Number(item.qty ?? item.quantity ?? 1) || 1,
-                uom: item.uom || item.unitOfMeasure || item.unitOfMeasurement || "PC",
+                quantity: Number(item.qty ?? item.quantity ?? 1) || 1, // ✅ Ensure it's a number
+                uom: String(item.uom || item.unitOfMeasure || item.unitOfMeasurement || "PC").toUpperCase().trim(), // ✅ Normalize UOM
             };
 
             if (sku) {

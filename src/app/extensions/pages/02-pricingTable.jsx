@@ -199,7 +199,22 @@ const PricingTable = ({
         setSearchError(body.error);
         setSearchResults([]);
       } else {
-        setSearchResults(products);
+        // Sort by priority: live results (priority 1) first, then cached (priority 0)
+        const sortedProducts = products.sort((a, b) => {
+          const priorityA = a._priority || 0;
+          const priorityB = b._priority || 0;
+          return priorityB - priorityA; // Higher priority first
+        });
+        
+        // Remove internal metadata before displaying
+        const cleanedProducts = sortedProducts.map(product => {
+          const { _source, _priority, ...cleanProduct } = product;
+          return cleanProduct;
+        });
+        
+        console.log(`📊 Results: ${cleanedProducts.length} total (${products.filter(p => p._priority === 1).length} live, ${products.filter(p => p._priority === 0).length} cached)`);
+        
+        setSearchResults(cleanedProducts);
         setSearchCursor(body.nextCursor || null);
       }
     } catch (error) {
@@ -245,8 +260,24 @@ const PricingTable = ({
 
       const newProducts = body.items || body.products || [];
 
+      // Sort by priority and clean metadata
+      const sortedNewProducts = newProducts.sort((a, b) => {
+        const priorityA = a._priority || 0;
+        const priorityB = b._priority || 0;
+        return priorityB - priorityA;
+      });
+      
+      const cleanedNewProducts = sortedNewProducts.map(product => {
+        const { _source, _priority, ...cleanProduct } = product;
+        return cleanProduct;
+      });
+
       // Simple: add new products to existing list
-      setSearchResults((prev) => [...prev, ...newProducts]);
+      setSearchResults((prev) => {
+        // Re-sort combined list to maintain priority order
+        const combined = [...prev, ...cleanedNewProducts];
+        return combined;
+      });
       setSearchCursor(body.nextCursor || null);
     } catch (error) {
       console.error("Load more error:", error);
@@ -605,6 +636,161 @@ const PricingTable = ({
     return null;
   };
 
+  // Helper function to get ABC access token
+  const getABCAccessToken = async () => {
+    try {
+      const response = await runServerless({
+        name: "abcLogin",
+        parameters: {}
+      });
+      
+      // Debug: Log full response structure
+      console.log("🔍 ABC Login Response (full):", JSON.stringify(response, null, 2));
+      
+      // Check for error response first (HubSpot wraps as response.response.body)
+      const error = extractNestedValue(response, 'response.body.error') ||
+                    extractNestedValue(response, 'body.error') ||
+                    extractNestedValue(response, 'error');
+      
+      const success = extractNestedValue(response, 'response.body.success') ||
+                      extractNestedValue(response, 'body.success') ||
+                      extractNestedValue(response, 'success');
+      
+      if (error || success === false) {
+        console.error("❌ ABC Login failed with error:", error || "Unknown error");
+        console.error("Full error response:", response?.response?.body || response?.body);
+        return null;
+      }
+      
+      // Try multiple paths to extract token (HubSpot wraps responses differently)
+      const token = extractNestedValue(response, 'response.body.access_token') ||
+                    extractNestedValue(response, 'response.body.data.access_token') ||
+                    extractNestedValue(response, 'body.access_token') ||
+                    extractNestedValue(response, 'body.data.access_token') ||
+                    extractNestedValue(response, 'data.access_token') || 
+                    extractNestedValue(response, 'access_token');
+      
+      if (!token) {
+        console.error("❌ Failed to extract ABC access token from response");
+        console.error("Response structure:", Object.keys(response || {}));
+        // Try to log what we actually got
+        if (response?.body) {
+          console.error("Response.body:", response.body);
+        }
+        if (response?.response?.body) {
+          console.error("Response.response.body:", response.response.body);
+        }
+        return null;
+      }
+      
+      console.log("✅ ABC access token obtained");
+      return token;
+    } catch (error) {
+      console.error("❌ ABC authentication failed:", error);
+      return null;
+    }
+  };
+
+  // Helper function to get SRS access token
+  const getSRSAccessToken = async () => {
+    try {
+      const response = await runServerless({
+        name: "srsLogin",
+        parameters: {}
+      });
+      
+      // Debug: Log full response structure
+      console.log("🔍 SRS Login Response (full):", JSON.stringify(response, null, 2));
+      
+      // Check for error response first
+      const error = extractNestedValue(response, 'response.body.error') ||
+                    extractNestedValue(response, 'body.error') ||
+                    extractNestedValue(response, 'error');
+      
+      const success = extractNestedValue(response, 'response.body.success') ||
+                      extractNestedValue(response, 'body.success');
+      
+      if (error || success === false) {
+        console.error("❌ SRS Login failed with error:", error || "Unknown error");
+        console.error("Full error response:", response?.response?.body || response?.body);
+        return null;
+      }
+      
+      // Try multiple paths to extract token (HubSpot wraps responses differently)
+      const token = extractNestedValue(response, 'response.body.access_token') ||
+                    extractNestedValue(response, 'response.body.data.access_token') ||
+                    extractNestedValue(response, 'body.access_token') ||
+                    extractNestedValue(response, 'body.data.access_token') ||
+                    extractNestedValue(response, 'data.access_token') || 
+                    extractNestedValue(response, 'access_token');
+      
+      if (!token) {
+        console.error("❌ Failed to extract SRS access token from response");
+        console.error("Response structure:", Object.keys(response || {}));
+        if (response?.response?.body) {
+          console.error("Response.response.body:", response.response.body);
+        }
+        return null;
+      }
+      
+      console.log("✅ SRS access token obtained");
+      return token;
+    } catch (error) {
+      console.error("❌ SRS authentication failed:", error);
+      return null;
+    }
+  };
+
+  // Helper function to get Beacon cookies
+  const getBeaconCookies = async () => {
+    try {
+      const response = await runServerless({
+        name: "beaconLogin",
+        parameters: {}
+      });
+      
+      // Debug: Log full response structure
+      console.log("🔍 Beacon Login Response (full):", JSON.stringify(response, null, 2));
+      
+      // Check for error response first
+      const error = extractNestedValue(response, 'response.body.error') ||
+                    extractNestedValue(response, 'body.error') ||
+                    extractNestedValue(response, 'error');
+      
+      const success = extractNestedValue(response, 'response.body.success') ||
+                      extractNestedValue(response, 'body.success');
+      
+      if (error || success === false) {
+        console.error("❌ Beacon Login failed with error:", error || "Unknown error");
+        console.error("Full error response:", response?.response?.body || response?.body);
+        return null;
+      }
+      
+      // Try multiple paths to extract cookies (HubSpot wraps responses differently)
+      const cookies = extractNestedValue(response, 'response.body.cookies') ||
+                      extractNestedValue(response, 'response.body.data.cookies') ||
+                      extractNestedValue(response, 'body.cookies') ||
+                      extractNestedValue(response, 'body.data.cookies') ||
+                      extractNestedValue(response, 'data.cookies') || 
+                      extractNestedValue(response, 'cookies');
+      
+      if (!cookies) {
+        console.error("❌ Failed to extract Beacon cookies from response");
+        console.error("Response structure:", Object.keys(response || {}));
+        if (response?.response?.body) {
+          console.error("Response.response.body:", response.response.body);
+        }
+        return null;
+      }
+      
+      console.log("✅ Beacon cookies obtained");
+      return cookies;
+    } catch (error) {
+      console.error("❌ Beacon authentication failed:", error);
+      return null;
+    }
+  };
+
   // Simple function to get pricing
   const getPricing = async () => {
     const supplier = (order.supplier || "").toLowerCase();
@@ -619,26 +805,80 @@ const PricingTable = ({
     let response;
     try {
       if (supplier === "abc") {
+        // ✅ Authenticate first
+        const abcAccessToken = await getABCAccessToken();
+        if (!abcAccessToken) {
+          console.error("❌ Cannot get pricing: ABC authentication failed");
+          // Mark all items with authentication error
+          const updatedItems = items.map(item => ({
+            ...item,
+            pricingError: "Authentication failed - please try again",
+          }));
+          setItems(updatedItems);
+          return;
+        }
+        
         response = await runServerless({
           name: "abcPricing",
-          parameters: { fullOrder: fullOrder },
+          parameters: { 
+            fullOrder: fullOrder,
+            abcAccessToken: abcAccessToken
+          },
         });
         updatePricesFromABC(response);
       } else if (supplier === "srs") {
+        // ✅ Authenticate first
+        const srsToken = await getSRSAccessToken();
+        if (!srsToken) {
+          console.error("❌ Cannot get pricing: SRS authentication failed");
+          // Mark all items with authentication error
+          const updatedItems = items.map(item => ({
+            ...item,
+            pricingError: "Authentication failed - please try again",
+          }));
+          setItems(updatedItems);
+          return;
+        }
+        
         response = await runServerless({
           name: "srsPricing",
-          parameters: { fullOrder: fullOrder },
+          parameters: { 
+            fullOrder: fullOrder,
+            token: srsToken
+          },
         });
         updatePricesFromSRS(response);
       } else if (supplier === "beacon") {
+        // ✅ Authenticate first
+        const beaconCookies = await getBeaconCookies();
+        if (!beaconCookies) {
+          console.error("❌ Cannot get pricing: Beacon authentication failed");
+          // Mark all items with authentication error
+          const updatedItems = items.map(item => ({
+            ...item,
+            pricingError: "Authentication failed - please try again",
+          }));
+          setItems(updatedItems);
+          return;
+        }
+        
         response = await runServerless({
           name: "beaconPricing",
-          parameters: { fullOrder: fullOrder },
+          parameters: { 
+            fullOrder: fullOrder,
+            cookies: beaconCookies
+          },
         });
         updatePricesFromBeacon(response);
       }
     } catch (error) {
       console.error("Pricing error:", error);
+      // Mark all items with error
+      const updatedItems = items.map(item => ({
+        ...item,
+        pricingError: error.message || "Pricing request failed",
+      }));
+      setItems(updatedItems);
     }
   };
 
@@ -670,13 +910,18 @@ const PricingTable = ({
       for (let j = 0; j < priceData.length; j++) {
         const priceItem = priceData[j];
         
-        // Try multiple SKU field names for matching
+        // ✅ Match by both SKU and request ID (if available) for better accuracy
         const skuMatch = priceItem.itemNumber === item.sku || 
                         priceItem.itemNumber === String(item.sku) ||
                         priceItem.sku === item.sku ||
                         priceItem.sku === String(item.sku);
         
-        if (skuMatch) {
+        // Also check if response has the request ID we sent (for validation)
+        const idMatch = !item.id || priceItem.id === item.id || 
+                        priceItem.id === String(item.id) ||
+                        !priceItem.id; // If response doesn't have ID, still match by SKU
+        
+        if (skuMatch && idMatch) {
           found = true;
           console.log(`✅ Found match for SKU ${item.sku}:`, JSON.stringify(priceItem, null, 2));
           
@@ -692,11 +937,19 @@ const PricingTable = ({
             const extractedPrice = extractPrice(priceItem);
             
             if (extractedPrice !== null && extractedPrice > 0) {
-              console.log(`💰 Price found for SKU ${item.sku} (UOM ${item.uom}): $${extractedPrice}`);
+              // ✅ Validate UOM match
+              const responseUom = (priceItem.uom || priceItem.unitOfMeasure || priceItem.unit_of_measure || "").toUpperCase().trim();
+              const requestedUom = (item.uom || "").toUpperCase().trim();
+              const uomMatches = !responseUom || responseUom === requestedUom;
               
-              // Check if response includes UOM info and update if different
-              const responseUom = priceItem.uom || priceItem.unitOfMeasure || priceItem.unit_of_measure;
-              const finalUom = responseUom ? String(responseUom).toUpperCase().trim() : item.uom;
+              if (!uomMatches) {
+                console.warn(`⚠️ UOM mismatch for SKU ${item.sku}: requested "${requestedUom}", got "${responseUom}"`);
+                // Still use the price, but log the mismatch - supplier may have corrected the UOM
+              }
+              
+              const finalUom = responseUom || requestedUom;
+              
+              console.log(`💰 Price found for SKU ${item.sku} (UOM ${finalUom}): $${extractedPrice}`);
               
               // Update available UOMs if response provides them
               let availableUoms = item.uoms || ["EA"];
@@ -706,12 +959,19 @@ const PricingTable = ({
                 availableUoms = [...availableUoms, finalUom];
               }
               
+              // ✅ Validate quantity matches (for quantity-based pricing)
+              const responseQty = priceItem.quantity || priceItem.qty;
+              const requestedQty = Number(item.qty) || 1;
+              if (responseQty && Number(responseQty) !== requestedQty) {
+                console.warn(`⚠️ Quantity mismatch for SKU ${item.sku}: requested ${requestedQty}, priced for ${responseQty}`);
+              }
+              
               updatedItems.push({
                 ...item,
                 unitPrice: extractedPrice,
                 uom: finalUom, // Use UOM from response if available
                 uoms: availableUoms,
-                linePrice: item.qty * extractedPrice,
+                linePrice: (Number(item.qty) || 1) * extractedPrice,
                 pricingError: null,
                 pricingFetched: true,
               });
@@ -742,7 +1002,18 @@ const PricingTable = ({
 
   // Simple function to update prices from SRS response
   const updatePricesFromSRS = (response) => {
-    if (!response.success || response.response?.error) {
+    console.log("🔍 SRS Pricing Response (full):", JSON.stringify(response, null, 2));
+    
+    // Try multiple response paths
+    const priceData = extractNestedValue(response, 'data.productList') || 
+                      extractNestedValue(response, 'productList') || 
+                      extractNestedValue(response, 'response.data.productList') || 
+                      [];
+    
+    console.log("📊 Extracted priceData:", priceData);
+    console.log("📊 PriceData length:", priceData.length);
+    
+    if (!response.success && !priceData.length) {
       // Mark all as needing pricing
       const updatedItems = [];
       for (let i = 0; i < items.length; i++) {
@@ -755,7 +1026,6 @@ const PricingTable = ({
       return;
     }
 
-    const priceData = response?.response?.data?.productList || [];
     const updatedItems = [];
 
     for (let i = 0; i < items.length; i++) {
@@ -763,32 +1033,70 @@ const PricingTable = ({
       let found = false;
 
       for (let j = 0; j < priceData.length; j++) {
-        if (priceData[j].productId === item.sku) {
+        const priceItem = priceData[j];
+        
+        // ✅ Match by multiple identifier fields
+        const skuMatch = priceItem.productId === item.sku ||
+                        priceItem.productId === String(item.sku) ||
+                        priceItem.itemCode === item.sku ||
+                        priceItem.itemCode === String(item.sku) ||
+                        priceItem.sku === item.sku ||
+                        priceItem.sku === String(item.sku);
+        
+        if (skuMatch) {
           found = true;
-          if (priceData[j].error || (priceData[j].unitPrice === 0 && priceData[j].message)) {
+          console.log(`✅ Found match for SKU ${item.sku}:`, JSON.stringify(priceItem, null, 2));
+          
+          if (priceItem.error || (priceItem.unitPrice === 0 && priceItem.message)) {
             updatedItems.push({
               ...item,
-              pricingError: "SKU not found - call for pricing",
-            });
-          } else if (priceData[j].unitPrice && priceData[j].unitPrice > 0) {
-            updatedItems.push({
-              ...item,
-              unitPrice: priceData[j].unitPrice,
-              linePrice: item.qty * priceData[j].unitPrice,
-              pricingError: null,
-              pricingFetched: true,
+              pricingError: priceItem.message || "SKU not found - call for pricing",
             });
           } else {
-            updatedItems.push({
-              ...item,
-              pricingError: "Price unavailable",
-            });
+            const extractedPrice = extractPrice(priceItem);
+            
+            if (extractedPrice !== null && extractedPrice > 0) {
+              // ✅ Validate UOM match
+              const responseUom = (priceItem.uom || priceItem.unitOfMeasure || "").toUpperCase().trim();
+              const requestedUom = (item.uom || "").toUpperCase().trim();
+              const uomMatches = !responseUom || responseUom === requestedUom;
+              
+              if (!uomMatches) {
+                console.warn(`⚠️ UOM mismatch for SKU ${item.sku}: requested "${requestedUom}", got "${responseUom}"`);
+              }
+              
+              const finalUom = responseUom || requestedUom;
+              
+              // ✅ Validate quantity
+              const responseQty = priceItem.quantity || priceItem.qty;
+              const requestedQty = Number(item.qty) || 1;
+              if (responseQty && Number(responseQty) !== requestedQty) {
+                console.warn(`⚠️ Quantity mismatch for SKU ${item.sku}: requested ${requestedQty}, priced for ${responseQty}`);
+              }
+              
+              console.log(`💰 Price found for SKU ${item.sku} (UOM ${finalUom}): $${extractedPrice}`);
+              
+              updatedItems.push({
+                ...item,
+                unitPrice: extractedPrice,
+                uom: finalUom,
+                linePrice: (Number(item.qty) || 1) * extractedPrice,
+                pricingError: null,
+                pricingFetched: true,
+              });
+            } else {
+              updatedItems.push({
+                ...item,
+                pricingError: "Price unavailable",
+              });
+            }
           }
           break;
         }
       }
 
       if (!found) {
+        console.log(`❌ SKU ${item.sku} not found in priceData`);
         updatedItems.push({
           ...item,
           pricingError: "SKU not found - call for pricing",
@@ -796,6 +1104,7 @@ const PricingTable = ({
       }
     }
 
+    console.log("✅ Updated items:", updatedItems.length);
     setItems(updatedItems);
   };
 
@@ -803,8 +1112,13 @@ const PricingTable = ({
   const updatePricesFromBeacon = (response) => {
     console.log("🔍 Beacon Pricing Response (full):", JSON.stringify(response, null, 2));
     
-    const beaconData = response?.data || {};
-    const priceInfo = beaconData?.priceInfo || {};
+    // Try multiple response paths to extract priceInfo (HubSpot wraps responses)
+    const priceInfo = extractNestedValue(response, 'response.data.priceInfo') ||
+                      extractNestedValue(response, 'data.priceInfo') ||
+                      extractNestedValue(response, 'body.data.priceInfo') ||
+                      extractNestedValue(response, 'priceInfo') ||
+                      {};
+    
     console.log("📊 Beacon priceInfo:", priceInfo);
     
     const updatedItems = [];
@@ -840,14 +1154,23 @@ const PricingTable = ({
         }
 
         if (unitPrice && unitPrice > 0) {
-          console.log(`💰 Price found for SKU ${item.sku} (UOM ${matchedUom}): $${unitPrice}`);
+          // ✅ Validate UOM match
+          const requestedUom = (item.uom || "").toUpperCase().trim();
+          if (matchedUom !== requestedUom) {
+            console.warn(`⚠️ UOM mismatch for SKU ${item.sku}: requested "${requestedUom}", using "${matchedUom}" from supplier`);
+          }
+          
+          // ✅ Validate quantity (Beacon may return quantity-specific pricing)
+          const requestedQty = Number(item.qty) || 1;
+          
+          console.log(`💰 Price found for SKU ${item.sku} (UOM ${matchedUom}, Qty ${requestedQty}): $${unitPrice}`);
           updatedItems.push({
             ...item,
             unitPrice: unitPrice,
             uom: matchedUom,
             // Update available UOMs with what's actually available from pricing
             uoms: availableUoms.length > 0 ? availableUoms : item.uoms || ["EA"],
-            linePrice: item.qty * unitPrice,
+            linePrice: requestedQty * unitPrice,
             pricingError: null,
             pricingFetched: true,
           });
@@ -855,7 +1178,7 @@ const PricingTable = ({
           console.log(`⚠️ No valid price found for SKU ${item.sku}`);
           updatedItems.push({
             ...item,
-            pricingError: "SKU not found - call for pricing",
+            pricingError: "Price unavailable",
           });
         }
       } else {

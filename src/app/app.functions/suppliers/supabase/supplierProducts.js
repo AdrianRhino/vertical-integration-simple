@@ -1,7 +1,9 @@
 // HubSpot serverless: supplier-aware product search ladder backed by Supabase
 
 const { createClient } = require("@supabase/supabase-js");
+const axios = require("axios");
 const searchConfig = require("../../../config/search.json");
+const { getCredentials } = require("../config/getCredentials");
 
 const TABLE_NAME = "products";
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"];
@@ -176,7 +178,7 @@ async function executeLadder({ supabase, supplier, supplierConfig, query, filter
   const targetStep = cursor?.step;
 
   if (targetStep && STEP_HANDLERS[targetStep]) {
-    return STEP_HANDLERS[targetStep]({
+    const result = await STEP_HANDLERS[targetStep]({
       supabase,
       supplier,
       supplierConfig,
@@ -185,10 +187,36 @@ async function executeLadder({ supabase, supplier, supplierConfig, query, filter
       cursor,
       pageSize,
     });
+    
+    // If no results, try live search as fallback
+    if (!result.items || result.items.length === 0) {
+      console.log(`⚠️ No Supabase results for step ${targetStep}, trying live search for ${supplier}...`);
+      const liveResult = await searchSupplierLive(supplier, query, pageSize);
+      if (liveResult.items && liveResult.items.length > 0) {
+        return {
+          items: liveResult.items,
+          nextCursor: null,
+          sourceStep: "LIVE_FALLBACK",
+          fallback: true
+        };
+      }
+    }
+    
+    // Mark Supabase results with lower priority
+    const markedItems = (result.items || []).map(item => ({
+      ...item,
+      _source: "cached",
+      _priority: 0
+    }));
+    
+    return {
+      ...result,
+      items: markedItems
+    };
   }
 
   if (!query || query.length < 2) {
-    return runRecentStep({
+    const recentResult = await runRecentStep({
       supabase,
       supplier,
       supplierConfig,
@@ -197,6 +225,32 @@ async function executeLadder({ supabase, supplier, supplierConfig, query, filter
       cursor: null,
       pageSize,
     });
+    
+    // Fallback to live if no recent items
+    if (!recentResult.items || recentResult.items.length === 0) {
+      console.log(`⚠️ No recent Supabase results, trying live search for ${supplier}...`);
+      const liveResult = await searchSupplierLive(supplier, "", pageSize);
+      if (liveResult.items && liveResult.items.length > 0) {
+        return {
+          items: liveResult.items,
+          nextCursor: null,
+          sourceStep: "LIVE_FALLBACK",
+          fallback: true
+        };
+      }
+    }
+    
+    // Mark Supabase results
+    const markedItems = (recentResult.items || []).map(item => ({
+      ...item,
+      _source: "cached",
+      _priority: 0
+    }));
+    
+    return {
+      ...recentResult,
+      items: markedItems
+    };
   }
 
   const skuResult = await runSkuStep({
@@ -209,10 +263,6 @@ async function executeLadder({ supabase, supplier, supplierConfig, query, filter
     pageSize,
   });
 
-  if (skuResult.items.length >= Math.min(pageSize, STRONG_MATCH_COUNT)) {
-    return skuResult;
-  }
-
   const fuzzyResult = await runFuzzyStep({
     supabase,
     supplier,
@@ -223,14 +273,62 @@ async function executeLadder({ supabase, supplier, supplierConfig, query, filter
     pageSize,
   });
 
+  // If no results from Supabase, try live search
+  const totalCachedResults = (skuResult.items?.length || 0) + (fuzzyResult.items?.length || 0);
+  
+  if (totalCachedResults === 0) {
+    console.log(`⚠️ No Supabase results (SKU: ${skuResult.items?.length || 0}, FUZZY: ${fuzzyResult.items?.length || 0}), trying live search for ${supplier}...`);
+    const liveResult = await searchSupplierLive(supplier, query, pageSize);
+    
+    if (liveResult.items && liveResult.items.length > 0) {
+      console.log(`✅ Live search returned ${liveResult.items.length} results`);
+      return {
+        items: liveResult.items,
+        nextCursor: null,
+        sourceStep: "LIVE_FALLBACK",
+        fallback: true
+      };
+    }
+  }
+
+  if (skuResult.items.length >= Math.min(pageSize, STRONG_MATCH_COUNT)) {
+    // Mark Supabase results with lower priority
+    const markedItems = skuResult.items.map(item => ({
+      ...item,
+      _source: "cached",
+      _priority: 0
+    }));
+    
+    return {
+      ...skuResult,
+      items: markedItems
+    };
+  }
+
   if (!skuResult.items.length) {
-    return fuzzyResult;
+    const markedItems = fuzzyResult.items.map(item => ({
+      ...item,
+      _source: "cached",
+      _priority: 0
+    }));
+    
+    return {
+      ...fuzzyResult,
+      items: markedItems
+    };
   }
 
   const merged = mergeResults(skuResult.items, fuzzyResult.items, pageSize, supplierConfig.primaryKey);
-      
-      return {
-    items: merged.items,
+  
+  // Mark merged results
+  const markedItems = merged.items.map(item => ({
+    ...item,
+    _source: "cached",
+    _priority: 0
+  }));
+  
+  return {
+    items: markedItems,
     nextCursor: merged.nextCursor
       ? { ...merged.nextCursor, step: merged.step || fuzzyResult.sourceStep || "SKU" }
       : merged.nextCursor,
@@ -592,5 +690,156 @@ async function resolveSkuFields({ supabase, supplier, configuredFields }) {
   const deduped = Array.from(new Set(resolved));
   skuFieldCache[cacheKey] = deduped;
   return deduped;
+}
+
+/**
+ * Live search from supplier APIs (like AccuLynx)
+ * Falls back to this when Supabase returns no results
+ */
+async function searchSupplierLive(supplier, query, pageSize = 50) {
+  try {
+    const supplierKey = supplier.toUpperCase();
+    const credentials = getCredentials(supplierKey);
+    const apiBaseUrl = credentials.apiBaseUrl;
+    
+    let results = [];
+    
+    if (supplierKey === "ABC") {
+      // ABC OAuth authentication
+      const basicAuth = Buffer.from(`${credentials.clientId}:${credentials.clientSecret}`).toString('base64');
+      const authResponse = await axios.post(
+        credentials.authUrl,
+        "grant_type=client_credentials&scope=product.read pricing.read",
+        {
+          headers: {
+            'Authorization': `Basic ${basicAuth}`,
+            'Content-Type': 'application/x-www-form-urlencoded'
+          }
+        }
+      );
+      
+      const accessToken = authResponse.data.access_token;
+      
+      // ABC product search
+      const searchUrl = `${apiBaseUrl}/product/v1/items`;
+      const response = await axios.get(searchUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        params: {
+          itemsPerPage: pageSize,
+          pageNumber: 1,
+          embed: "branches",
+          ...(query ? { search: query } : {})
+        }
+      });
+      
+      results = (response.data.items || []).map(item => ({
+        ...item,
+        _source: "live",
+        _priority: 1 // Higher priority than cached
+      }));
+      
+    } else if (supplierKey === "SRS") {
+      // SRS OAuth authentication
+      const authParams = new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: credentials.clientId,
+        client_secret: credentials.clientSecret,
+        scope: "ALL"
+      });
+      const authResponse = await axios.post(
+        credentials.authUrl,
+        authParams.toString(),
+        {
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded"
+          }
+        }
+      );
+      
+      const accessToken = authResponse.data.access_token;
+      
+      // SRS product search
+      const searchUrl = `${apiBaseUrl}/products/v2/catalog`;
+      const response = await axios.get(searchUrl, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        params: {
+          ...(query ? { q: query } : {}),
+          pageSize: pageSize,
+        }
+      });
+      
+      results = (response.data.products || response.data.items || []).map(item => ({
+        ...item,
+        _source: "live",
+        _priority: 1
+      }));
+      
+    } else if (supplierKey === "BEACON") {
+      // Beacon cookie-based authentication
+      const loginResponse = await axios.post(
+        `${apiBaseUrl}/v1/rest/com/becn/login`,
+        {
+          username: credentials.username,
+          password: credentials.password,
+          siteId: "homeSite",
+          persistentLoginType: "RememberMe",
+          userAgent: "desktop",
+          apiSiteId: credentials.apiSiteId || "UAT"
+        },
+        {
+          headers: {
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      
+      const cookies = loginResponse.headers['set-cookie']?.join('; ') || "";
+      
+      // Beacon product search
+      const searchUrl = `${apiBaseUrl}/v1/rest/com/becn/products`;
+      const response = await axios.get(searchUrl, {
+        headers: {
+          Cookie: cookies,
+        },
+        params: {
+          ...(query ? { search: query } : {}),
+          limit: pageSize,
+        }
+      });
+      
+      results = (response.data.items || response.data.products || []).map(item => ({
+        ...item,
+        _source: "live",
+        _priority: 1
+      }));
+    }
+    
+    console.log(`✅ Live search for ${supplierKey} returned ${results.length} results`);
+    
+    return {
+      items: results,
+      source: "live",
+      success: true
+    };
+    
+  } catch (error) {
+    console.error(`❌ Live search failed for ${supplier}:`, error.message);
+    if (error.response) {
+      console.error(`Response status: ${error.response.status}`);
+      console.error(`Response data:`, error.response.data);
+    }
+    return {
+      items: [],
+      source: "live",
+      success: false,
+      error: error.message
+    };
+  }
 }
 

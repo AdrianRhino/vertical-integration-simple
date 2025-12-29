@@ -45,12 +45,13 @@ exports.main = async (context = {}) => {
     const credentials = getCredentials("ABC", environment);
     const apiBaseUrl = credentials.apiBaseUrl;
 
+    // ✅ Normalize quantities and UOMs for accurate pricing
     const formattedLineItems = fullOrder.fullOrderItems.map(item => ({
-        id: item.id,
-        itemNumber: item.sku,
-        quantity: item.qty,
-        uom: item.uom,
-    }));
+        id: item.id || String(Math.random()),
+        itemNumber: String(item.sku || "").trim(),
+        quantity: Number(item.qty) || 1, // ✅ Ensure it's a number
+        uom: String(item.uom || "EA").toUpperCase().trim(), // ✅ Normalize UOM
+    })).filter(item => item.itemNumber); // ✅ Filter out items without SKU
 
     console.log("Formatted Line Items:", formattedLineItems);
     console.log(`Using ABC API (${credentials.environment}): ${apiBaseUrl}`);

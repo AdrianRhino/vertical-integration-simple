@@ -16,6 +16,18 @@
       "file": "suppliers/supabase/supplierProducts.js",
       "secrets": ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]
     },
+    "abcLogin": {
+      "file": "suppliers/login/abcLogin.js",
+      "secrets": []
+    },
+    "srsLogin": {
+      "file": "suppliers/login/srsLogin.js",
+      "secrets": []
+    },
+    "beaconLogin": {
+      "file": "suppliers/login/beaconLogin.js",
+      "secrets": []
+    },
     "abcPricing": {
       "file": "suppliers/prices/getABCPricing.js",
       "secrets": []
