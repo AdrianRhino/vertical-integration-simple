@@ -717,6 +717,9 @@ const PricingTable = ({
       }
       
       console.log("✅ ABC access token obtained");
+      // ✅ Debug: Log token info (without exposing full token)
+      console.log("Token length:", token ? String(token).length : 0);
+      console.log("Token preview:", token ? String(token).substring(0, 20) + "..." : "none");
       return token;
     } catch (error) {
       console.error("❌ ABC authentication failed:", error);

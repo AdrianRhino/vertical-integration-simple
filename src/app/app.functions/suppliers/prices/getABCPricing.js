@@ -25,6 +25,11 @@ exports.main = async (context = {}) => {
         }
         */}
 
+    // ✅ Debug: Log token presence (but not the actual token for security)
+    console.log("ABC Pricing - Token provided:", !!abcAccessToken);
+    console.log("ABC Pricing - Token length:", abcAccessToken ? String(abcAccessToken).length : 0);
+    console.log("ABC Pricing - Token preview:", abcAccessToken ? String(abcAccessToken).substring(0, 20) + "..." : "none");
+
     if (!abcAccessToken) {
         console.error("No ABC access token provided");
         return {
@@ -55,6 +60,7 @@ exports.main = async (context = {}) => {
 
     console.log("Formatted Line Items:", formattedLineItems);
     console.log(`Using ABC API (${credentials.environment}): ${apiBaseUrl}`);
+    console.log(`Pricing URL: ${apiBaseUrl}/api/pricing/v2/prices`);
 
     const config = {
         method: "post",
@@ -67,14 +73,21 @@ exports.main = async (context = {}) => {
         data: {
             branchNumber: "461",
             shipToNumber: "2063975-2",
-            requestId: "Test-Quote-123",
+            requestId: `Pricing-${Date.now()}`,
             purpose: "estimating",
             lines: formattedLineItems,
         },
-    };  
+    };
+    
+    // ✅ Debug: Log request details (without sensitive data)
+    console.log("ABC Pricing Request URL:", config.url);
+    console.log("ABC Pricing Request - Line items count:", formattedLineItems.length);
+    console.log("ABC Pricing Request - Authorization header present:", !!config.headers.Authorization);
+    
     try {
         const response = await axios(config);
-        console.log("ABC Pricing Response:", response.data);
+        console.log("ABC Pricing Response Status:", response.status);
+        console.log("ABC Pricing Response Data:", response.data);
         return {
             success: true,
             message: `ABC Pricing fetched successfully (${credentials.environment})`,
@@ -82,11 +95,22 @@ exports.main = async (context = {}) => {
             environment: credentials.environment,
         };
     } catch (error) {
-        console.error("Error in ABC Pricing:", error);
+        console.error("❌ ABC Pricing Error Details:");
+        console.error("  Status:", error.response?.status);
+        console.error("  Status Text:", error.response?.statusText);
+        console.error("  Error Message:", error.message);
+        console.error("  Response Data:", error.response?.data);
+        console.error("  Request URL:", error.config?.url);
+        console.error("  Request Headers (Authorization present):", !!error.config?.headers?.Authorization);
+        
+        // ✅ Return more detailed error information
         return {
             success: false,
             message: "ABC Pricing fetch failed",
-            error: error.message,
+            error: error.response?.data?.error || error.response?.data?.message || error.message,
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            details: error.response?.data,
         };
     }
 
