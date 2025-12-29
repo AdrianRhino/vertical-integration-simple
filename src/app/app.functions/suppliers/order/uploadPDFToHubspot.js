@@ -8,10 +8,10 @@ const FormData = require('form-data');
 
 async function uploadPDFToHubspot(pdfBuffer, fileName, orderId, dealId) {
   // Get API key
-  const apiKey = process.env.HUBSPOT_API_KEY;
+  const apiKey = process.env.HUBSPOT_API_KEY2;
   
   if (!apiKey) {
-    throw new Error('HUBSPOT_API_KEY is not set');
+    throw new Error('HUBSPOT_API_KEY2 is not set');
   }
   
   // Check PDF buffer

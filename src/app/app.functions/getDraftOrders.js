@@ -35,7 +35,7 @@ exports.main = async (context) => {
         const associatedOrdersResponse = await fetch(`https://api.hubapi.com/crm/v4/objects/deals/${dealId}/associations/2-22239999`, {
             method: "GET",
             headers: {
-                "Authorization": `Bearer ${process.env.HUBSPOT_API_KEY}`,
+                "Authorization": `Bearer ${process.env.HUBSPOT_API_KEY2}`,
                 "Content-Type": "application/json"
             },
         })
@@ -60,7 +60,7 @@ exports.main = async (context) => {
         const orderResponse = await fetch(`https://api.hubapi.com/crm/v3/objects/2-22239999/batch/read`, {
             method: "POST",
             headers: {
-                "Authorization": `Bearer ${process.env.HUBSPOT_API_KEY}`,
+                "Authorization": `Bearer ${process.env.HUBSPOT_API_KEY2}`,
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({

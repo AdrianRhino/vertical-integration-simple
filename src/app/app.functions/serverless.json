@@ -54,11 +54,11 @@
     },
     "sendOrderToSupplier": {
       "file": "suppliers/order/sendOrderToSupplier.js",
-      "secrets": ["HUBSPOT_API_KEY"]
+      "secrets": ["HUBSPOT_API_KEY2"]
     },
     "generateAndUploadOrderPDF": {
       "file": "suppliers/order/generateAndUploadOrderPDF.js",
-      "secrets": ["HUBSPOT_API_KEY"]
+      "secrets": ["HUBSPOT_API_KEY2"]
     }
   }
 }

@@ -1,5 +1,5 @@
 exports.main = async (context) => {
-  const token = process.env.HUBSPOT_API_KEY;
+  const token = process.env.HUBSPOT_API_KEY2;
 
   const dealId = context.parameters.context.crm.objectId;
 

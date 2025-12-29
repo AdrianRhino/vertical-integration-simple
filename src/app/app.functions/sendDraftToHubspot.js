@@ -68,7 +68,7 @@ exports.main = async (context = {}) => {
         method: "PATCH",
         url: `https://api.hubapi.com/crm/v3/objects/2-22239999/${existingOrderId}`,
         headers: {
-          Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}`,
+          Authorization: `Bearer ${process.env.HUBSPOT_API_KEY2}`,
           "Content-Type": "application/json",
         },
         data: {
@@ -109,7 +109,7 @@ exports.main = async (context = {}) => {
       method: "POST",
       url: "https://api.hubapi.com/crm/v3/objects/2-22239999",
       headers: {
-        Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}`,
+        Authorization: `Bearer ${process.env.HUBSPOT_API_KEY2}`,
         "Content-Type": "application/json",
       },
       data: {
@@ -125,7 +125,7 @@ exports.main = async (context = {}) => {
       method: "POST",
       url: "https://api.hubapi.com/crm/v4/associations/2-22239999/deals/batch/associate/default",
       headers: {
-        Authorization: `Bearer ${process.env.HUBSPOT_API_KEY}`,
+        Authorization: `Bearer ${process.env.HUBSPOT_API_KEY2}`,
         "Content-Type": "application/json",
       },
       data: {

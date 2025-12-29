@@ -1,6 +1,6 @@
 exports.main = async (context) => {
   try {
-    const token = process.env.HUBSPOT_API_KEY;
+    const token = process.env.HUBSPOT_API_KEY2;
 
     const response = await fetch(`https://api.hubapi.com/crm/v3/owners`, {
       method: "GET",

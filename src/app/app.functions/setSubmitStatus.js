@@ -25,7 +25,7 @@ exports.main = async (context = {}) => {
         };
     }
 
-    const token = process.env.HUBSPOT_API_KEY;
+    const token = process.env.HUBSPOT_API_KEY2;
 
     console.log("=== setSubmitStatus CALLED ===");
     console.log("Order ID: ", orderId);
