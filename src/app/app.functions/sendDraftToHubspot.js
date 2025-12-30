@@ -1,4 +1,5 @@
 const axios = require("axios"); // Added axios for V4 associations
+const { logContractFailure } = require("../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
   console.log("🚀 Saving draft...");
@@ -90,7 +91,22 @@ exports.main = async (context = {}) => {
           },
         };
       } catch (updateError) {
-        console.error("❌ Error updating order:", updateError.response?.data || updateError.message);
+        logContractFailure({
+          contractId: "C-002",
+          message: "Failed to update HubSpot order object",
+          expected: { statusCode: 200, orderId: existingOrderId },
+          actual: {
+            status: updateError.response?.status,
+            data: updateError.response?.data,
+            message: updateError.message,
+          },
+          system: "HubSpot",
+          entityType: "Order",
+          entityId: existingOrderId,
+          operation: "UPDATE",
+          trace: ["sendDraftToHubspot", "updateOrder"],
+          nextCheck: "Check HubSpot API key, order object permissions, and order ID validity",
+        });
         // If update fails, try to create a new one instead
         console.log("Update failed, attempting to create new order...");
         // Continue to create flow below
@@ -153,8 +169,21 @@ exports.main = async (context = {}) => {
       },
     };
   } catch (error) {
-    console.error("❌ Error:", error.message);
-    console.error("❌ HubSpot API Error Details:", error.response?.data);
+    logContractFailure({
+      contractId: "C-002",
+      message: "HubSpot API request failed while saving draft order",
+      expected: { success: true, orderId: "string" },
+      actual: {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      },
+      system: "HubSpot",
+      entityType: "Order",
+      operation: existingOrderId ? "UPDATE" : "CREATE",
+      trace: ["sendDraftToHubspot", existingOrderId ? "updateOrder" : "createOrder"],
+      nextCheck: "Check HubSpot API key, network connectivity, and API rate limits",
+    });
     return {
       statusCode: 500,
       body: {

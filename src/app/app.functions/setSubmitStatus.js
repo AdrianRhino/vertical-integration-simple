@@ -1,4 +1,5 @@
 const axios = require("axios"); // Added axios for V4 associations
+const { logContractFailure, logInvariantViolation } = require("../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
     const { status, orderId, pdfUrl } = context.parameters || {};
@@ -72,8 +73,22 @@ exports.main = async (context = {}) => {
                     fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'setSubmitStatus.js:64',message:'PROPERTY_SET',data:{pdfPropertyName,validUrl:validUrl.substring(0,200),propertiesSet:Object.keys(properties)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
                     // #endregion
                 } catch (urlError) {
-                    console.error(`❌ Invalid URL format, cannot save to ${pdfPropertyName}:`, validUrl);
-                    console.error("URL validation error:", urlError.message);
+                    logInvariantViolation({
+                      invariantId: "I-002",
+                      message: `Invalid URL format for PDF property ${pdfPropertyName}`,
+                      expected: { urlFormat: "http:// or https://" },
+                      actual: {
+                        url: validUrl,
+                        error: urlError.message,
+                      },
+                      system: "HubSpot",
+                      entityType: "Order",
+                      entityId: orderId,
+                      field: pdfPropertyName,
+                      operation: "UPDATE",
+                      trace: ["setSubmitStatus", "validateUrl"],
+                      nextCheck: "Check URL format and ensure it's a valid HTTP/HTTPS URL",
+                    });
                     
                     // #region agent log
                     fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'setSubmitStatus.js:69',message:'URL_VALIDATION_FAILED',data:{validUrl:validUrl?.substring(0,200),error:urlError.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
@@ -119,8 +134,22 @@ exports.main = async (context = {}) => {
             },
         };
     } catch (error) {
-        console.error("Error updating order status:", error.message);
-        console.error("Error details:", error.response?.data);
+        logContractFailure({
+          contractId: "C-002",
+          message: "Failed to update order status in HubSpot",
+          expected: { statusCode: 200, success: true },
+          actual: {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message,
+          },
+          system: "HubSpot",
+          entityType: "Order",
+          entityId: orderId,
+          operation: "UPDATE",
+          trace: ["setSubmitStatus", "updateOrderStatus"],
+          nextCheck: "Check HubSpot API key, order ID validity, and property permissions",
+        });
         return {
             statusCode: 500,
             body: { 

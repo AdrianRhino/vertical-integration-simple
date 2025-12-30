@@ -11,6 +11,7 @@
 
 const axios = require("axios");
 const { getCredentials } = require("../config/getCredentials");
+const { logContractFailure, logInvariantViolation } = require("../../../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
     const { token, fullOrder, environment = null } = context.parameters || {};
@@ -26,7 +27,16 @@ exports.main = async (context = {}) => {
         */}
 
     if (!token) {
-        console.error("No access token provided");
+        logInvariantViolation({
+          invariantId: "I-001",
+          message: "SRS access token is required for pricing request",
+          expected: { token: "string" },
+          actual: { token: null },
+          system: "SRS Distribution",
+          operation: "GET_PRICING",
+          trace: ["getSRSPricing", "validateToken"],
+          nextCheck: "Ensure SRS authentication is called before pricing request",
+        });
         return {
             success: false,
             message: "No access token provided",
@@ -34,7 +44,16 @@ exports.main = async (context = {}) => {
     }
     
     if (!fullOrder) {
-        console.error("No full order provided");
+        logInvariantViolation({
+          invariantId: "I-004",
+          message: "Full order is required for pricing request",
+          expected: { fullOrder: "object" },
+          actual: { fullOrder: null },
+          system: "SRS Distribution",
+          operation: "GET_PRICING",
+          trace: ["getSRSPricing", "validateOrder"],
+          nextCheck: "Ensure fullOrder is passed in context parameters",
+        });
         return {
             success: false,
             message: "No full order provided",
@@ -95,7 +114,16 @@ exports.main = async (context = {}) => {
         .filter(Boolean);
 
     if (productList.length === 0) {
-        console.error("No valid product data found on full order items");
+        logInvariantViolation({
+          invariantId: "I-004",
+          message: "No valid product data found in order items",
+          expected: { productListLength: "> 0" },
+          actual: { productListLength: 0, orderItemsCount: orderItems.length },
+          system: "SRS Distribution",
+          operation: "GET_PRICING",
+          trace: ["getSRSPricing", "validateProductList"],
+          nextCheck: "Check order items have productId or sku fields populated",
+        });
         return {
             success: false,
             message: "No valid product data found on full order items",
@@ -147,10 +175,21 @@ exports.main = async (context = {}) => {
         };
     }
     catch (error) {
-        console.error("Error in SRS Pricing:");
-        console.error("Error message:", error.message);
-        console.error("Error response:", error.response?.data);
-        console.error("Error status:", error.response?.status);
+        logContractFailure({
+          contractId: "C-005",
+          message: "SRS Distribution pricing API request failed",
+          expected: { status: 200, data: "pricing object" },
+          actual: {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message,
+          },
+          system: "SRS Distribution",
+          integration: "SRSAdapter",
+          operation: "GET_PRICING",
+          trace: ["getSRSPricing", "pricingRequest"],
+          nextCheck: "Check SRS access token validity, API endpoint, and request payload format",
+        });
         
         return {
             success: false,

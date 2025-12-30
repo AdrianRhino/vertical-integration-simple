@@ -8,6 +8,7 @@ import {
   Flex,
   hubspot,
 } from "@hubspot/ui-extensions";
+import { logContractFailure, logInvariantViolation } from "./helperFunctions/debugCheckLogger";
 
 import OrderStart from "./pages/00-orderStart";
 import PickSetup from "./pages/01-pickupSetup";
@@ -89,7 +90,20 @@ useEffect(() => {
         });
       }
     } catch (error) {
-      console.error("Failed to load address", error);
+      logContractFailure({
+        contractId: "C-002",
+        message: "Failed to load address from CRM object properties",
+        expected: { success: true, properties: "object" },
+        actual: {
+          message: error.message,
+          stack: error.stack,
+        },
+        system: "HubSpot",
+        entityType: "Deal",
+        operation: "READ",
+        trace: ["Example", "loadAddress", "fetchCrmObjectProperties"],
+        nextCheck: "Check HubSpot API permissions and deal object properties",
+      });
     }
   }
   loadAddress();
@@ -117,7 +131,20 @@ useEffect(() => {
           selectedOrderId: loadedOrder.orderId || loadedOrder.selectedOrderId || prev.selectedOrderId,
         }));
       } catch (error) {
-        console.error("Failed to parse order", error);
+        logInvariantViolation({
+          invariantId: "I-002",
+          message: "Failed to parse order data from payload snapshot",
+          expected: { validJson: true, orderData: "object" },
+          actual: {
+            message: error.message,
+            payloadData: orderData,
+          },
+          system: "HubSpot",
+          entityType: "Order",
+          operation: "PARSE",
+          trace: ["Example", "loadDraftOrder", "parseOrderData"],
+          nextCheck: "Check payload_snapshot format and JSON structure",
+        });
       }
     }
   }
@@ -272,7 +299,20 @@ useEffect(() => {
         sendAlert({ message: "Draft saved but no order ID returned", type: "warning" });
       }
     } catch (error) {
-      console.error("Error saving draft:", error);
+      logContractFailure({
+        contractId: "C-002",
+        message: "Failed to save draft order to HubSpot",
+        expected: { success: true, orderId: "string" },
+        actual: {
+          message: error.message,
+          response: error.response?.body,
+        },
+        system: "HubSpot",
+        entityType: "Order",
+        operation: "CREATE",
+        trace: ["Example", "saveDraft", "sendDraftToHubspot"],
+        nextCheck: "Check HubSpot API connectivity and order object permissions",
+      });
       sendAlert({ message: `Error saving draft: ${error.message || "Unknown error"}`, type: "danger" });
     }
   };

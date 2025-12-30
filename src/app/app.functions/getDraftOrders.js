@@ -10,6 +10,8 @@
 // Config: HubSpot API endpoints (optional JSON)
 // Notes: loads orders from HubSpot for a specific deal
 
+const { logContractFailure } = require("../utils/debugCheckLogger");
+
 
 exports.main = async (context) => {
   
@@ -89,7 +91,21 @@ exports.main = async (context) => {
         }
        
 } catch (error) {
-    console.error("❌ Error:", error.message);
+    logContractFailure({
+      contractId: "C-002",
+      message: "Failed to fetch draft orders from HubSpot",
+      expected: { ok: true, orders: "array" },
+      actual: {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      },
+      system: "HubSpot",
+      entityType: "Order",
+      operation: "READ",
+      trace: ["getDraftOrders", "fetchAssociations", "batchRead"],
+      nextCheck: "Check HubSpot API key, deal ID validity, and network connectivity",
+    });
     return {
         statusCode: 500,
         body: {

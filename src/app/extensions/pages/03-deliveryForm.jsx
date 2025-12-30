@@ -3,6 +3,7 @@ import { deliveryComponent, deliveryRequiredFields } from "../helperFunctions/he
 import { renderField } from "../helperFunctions/componentRender";
 import AddressDisplay from "../helperFunctions/AddressDisplay";
 import { useEffect, useState } from "react";
+import { logContractFailure } from "../helperFunctions/debugCheckLogger";
 
 const DeliveryForm = ({ order, setOrder, runServerless, setCanGoNext, fetchCrmObjectProperties }) => {
   const [productionTeam, setProductionTeam] = useState([]);
@@ -45,7 +46,17 @@ const DeliveryForm = ({ order, setOrder, runServerless, setCanGoNext, fetchCrmOb
             });
           }
         } catch (error) {
-          console.error("Failed to load address", error);
+          logContractFailure({
+            contractId: "C-002",
+            message: "Failed to load address from CRM object properties",
+            expected: { success: true, properties: "object" },
+            actual: { message: error.message },
+            system: "HubSpot",
+            entityType: "Deal",
+            operation: "READ",
+            trace: ["DeliveryForm", "loadAddress"],
+            nextCheck: "Check HubSpot API permissions and deal object properties",
+          });
         }
       }
       loadAddress();
@@ -77,7 +88,16 @@ const DeliveryForm = ({ order, setOrder, runServerless, setCanGoNext, fetchCrmOb
       const response = await runServerless({ name: "getProductionTeam" });
       setProductionTeam(response.response.body.data || []);
     } catch (error) {
-      console.error("Error loading production team:", error);
+      logContractFailure({
+        contractId: "C-002",
+        message: "Failed to load production team",
+        expected: { success: true, data: "array" },
+        actual: { message: error.message },
+        system: "HubSpot",
+        operation: "READ",
+        trace: ["DeliveryForm", "loadProductionTeam"],
+        nextCheck: "Check getProductionTeam serverless function and HubSpot API",
+      });
     }
   };
 

@@ -1,3 +1,5 @@
+const { logContractFailure } = require("../utils/debugCheckLogger");
+
 exports.main = async (context) => {
   const token = process.env.HUBSPOT_API_KEY2;
 
@@ -52,7 +54,21 @@ exports.main = async (context) => {
       headers: { "Content-Type": "application/json" },
     };
   } catch (error) {
-    console.error("❌ Error fetching tickets:", error.message);
+    logContractFailure({
+      contractId: "C-002",
+      message: "Failed to fetch tickets from HubSpot",
+      expected: { ok: true, tickets: "array" },
+      actual: {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      },
+      system: "HubSpot",
+      entityType: "Ticket",
+      operation: "READ",
+      trace: ["getTickets", "fetchAssociations", "batchRead"],
+      nextCheck: "Check HubSpot API key, deal ID validity, and ticket associations",
+    });
     return {
       statusCode: 500,
       body: { error: error.message },

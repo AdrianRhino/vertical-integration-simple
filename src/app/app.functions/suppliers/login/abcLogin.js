@@ -5,6 +5,7 @@
 
 const axios = require("axios");
 const { getCredentials } = require("../config/getCredentials");
+const { logContractFailure } = require("../../../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
   const { environment = null } = context.parameters || {};
@@ -54,7 +55,21 @@ exports.main = async (context = {}) => {
       }
     };
   } catch (error) {
-    console.error("ABC Login failed:", error.response?.data || error.message);
+    logContractFailure({
+      contractId: "C-003",
+      message: "ABC Supply authentication failed",
+      expected: { success: true, access_token: "string" },
+      actual: {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      },
+      system: "ABC Supply",
+      integration: "ABCAdapter",
+      operation: "AUTHENTICATE",
+      trace: ["abcLogin", "oauthTokenRequest"],
+      nextCheck: "Check ABC credentials (clientId/clientSecret) and API endpoint availability",
+    });
     return {
       statusCode: error.response?.status || 500,
       body: {

@@ -1,0 +1,79 @@
+{
+  "invariants": {
+    "I-001": {
+      "description": "Required field missing at ingestion",
+      "example": "Contact.email must be a non-empty string at ingestion"
+    },
+    "I-002": {
+      "description": "Invalid data type or format",
+      "example": "Order total must be a positive number"
+    },
+    "I-003": {
+      "description": "Business rule violation",
+      "example": "Deal cannot advance to 'Closed Won' without signed contract"
+    },
+    "I-004": {
+      "description": "Missing required order data",
+      "example": "Order must have at least one item"
+    },
+    "I-005": {
+      "description": "Invalid order state transition",
+      "example": "Cannot submit order that is already submitted"
+    }
+  },
+  "contracts": {
+    "C-001": {
+      "description": "HubSpot API authentication failure",
+      "example": "Invalid or missing HubSpot API key"
+    },
+    "C-002": {
+      "description": "HubSpot API request failure",
+      "example": "Failed to create/update HubSpot object"
+    },
+    "C-003": {
+      "description": "Supplier API authentication failure",
+      "example": "ABC/SRS/Beacon login failed"
+    },
+    "C-004": {
+      "description": "Supplier API request failure",
+      "example": "Failed to submit order to supplier"
+    },
+    "C-005": {
+      "description": "Supplier pricing API failure",
+      "example": "Failed to fetch pricing from supplier"
+    },
+    "C-006": {
+      "description": "Invalid API response structure",
+      "example": "Expected response.data but got undefined"
+    },
+    "C-007": {
+      "description": "API rate limit exceeded",
+      "example": "Too many requests to supplier API"
+    },
+    "C-014": {
+      "description": "Adapter attempted to write read-only field",
+      "example": "StripeAdapter attempted to write read-only field 'lifecyclestage'"
+    }
+  },
+  "drift": {
+    "M-001": {
+      "description": "Missing required field in data",
+      "example": "Contact missing primary_email field"
+    },
+    "M-002": {
+      "description": "Data quality drift detected",
+      "example": "18% of Contacts missing 'primary_email'"
+    },
+    "M-003": {
+      "description": "Schema mismatch detected",
+      "example": "Expected field type string but got number"
+    }
+  },
+  "tests": {
+    "T-001": {
+      "description": "Unit test assertion failure",
+      "example": "Expected function to return value but got undefined"
+    }
+  }
+}
+

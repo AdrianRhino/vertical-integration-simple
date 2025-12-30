@@ -5,6 +5,7 @@
 
 const axios = require("axios");
 const { getCredentials } = require("../config/getCredentials");
+const { logContractFailure } = require("../../../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
   const { environment = null } = context.parameters || {};
@@ -62,7 +63,21 @@ exports.main = async (context = {}) => {
       }
     };
   } catch (error) {
-    console.error("Beacon Login failed:", error.response?.data || error.message);
+    logContractFailure({
+      contractId: "C-003",
+      message: "Beacon Building Products authentication failed",
+      expected: { success: true, cookies: "string" },
+      actual: {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      },
+      system: "Beacon Building Products",
+      integration: "BeaconAdapter",
+      operation: "AUTHENTICATE",
+      trace: ["beaconLogin", "sessionLogin"],
+      nextCheck: "Check Beacon credentials (username/password) and API endpoint availability",
+    });
     return {
       statusCode: error.response?.status || 500,
       body: {

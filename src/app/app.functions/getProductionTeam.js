@@ -1,3 +1,5 @@
+const { logContractFailure } = require("../utils/debugCheckLogger");
+
 exports.main = async (context) => {
   try {
     const token = process.env.HUBSPOT_API_KEY2;
@@ -16,7 +18,19 @@ exports.main = async (context) => {
 
     // Check if response is successful
     if (!response.ok) {
-      console.error("API Error:", data);
+      logContractFailure({
+        contractId: "C-002",
+        message: "HubSpot API request failed when fetching production team",
+        expected: { status: 200, data: "array" },
+        actual: {
+          status: response.status,
+          data: data,
+        },
+        system: "HubSpot",
+        operation: "READ",
+        trace: ["getProductionTeam", "fetchOwners"],
+        nextCheck: "Check HubSpot API key and owners endpoint permissions",
+      });
       return {
         statusCode: response.status,
         body: { error: data.message || "API request failed" },
@@ -56,7 +70,19 @@ exports.main = async (context) => {
       },
     };
   } catch (error) {
-    console.error("Error fetching production team:", error);
+    logContractFailure({
+      contractId: "C-002",
+      message: "Exception occurred while fetching production team",
+      expected: { success: true, data: "array" },
+      actual: {
+        message: error.message,
+        stack: error.stack,
+      },
+      system: "HubSpot",
+      operation: "READ",
+      trace: ["getProductionTeam"],
+      nextCheck: "Check network connectivity and HubSpot API availability",
+    });
     return {
       statusCode: 500,
       body: { error: error.message },

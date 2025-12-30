@@ -15,6 +15,7 @@ import {
   hubspot,
 } from "@hubspot/ui-extensions";
 import { moneyFormatter, formatAddressString } from "../helperFunctions/helper";
+import { logContractFailure, logInvariantViolation } from "../helperFunctions/debugCheckLogger";
 
 const ReviewSubmit = ({
   order,
@@ -54,7 +55,18 @@ const ReviewSubmit = ({
         const teamData = response?.response?.body?.data || response?.body?.data || [];
         setProductionTeam(teamData);
       } catch (error) {
-        console.error("Error loading production team:", error);
+        logContractFailure({
+          contractId: "C-002",
+          message: "Failed to load production team from HubSpot",
+          expected: { success: true, data: "array" },
+          actual: {
+            message: error.message,
+          },
+          system: "HubSpot",
+          operation: "READ",
+          trace: ["ReviewSubmit", "loadProductionTeam"],
+          nextCheck: "Check getProductionTeam serverless function and HubSpot API",
+        });
       }
     };
     loadProductionTeam();
@@ -163,7 +175,20 @@ const ReviewSubmit = ({
       // Return the order ID so it can be used immediately
       return newOrderId;
     } catch (error) {
-      console.error("Error saving draft:", error);
+      logContractFailure({
+        contractId: "C-002",
+        message: "Failed to save draft order before submission",
+        expected: { success: true, orderId: "string" },
+        actual: {
+          message: error.message,
+          response: error.response?.body,
+        },
+        system: "HubSpot",
+        entityType: "Order",
+        operation: "CREATE",
+        trace: ["ReviewSubmit", "saveDraftBeforeSubmit"],
+        nextCheck: "Check HubSpot API connectivity and order object permissions",
+      });
       sendAlert({ message: `Error saving draft: ${error.message || "Unknown error"}`, type: "danger" });
       throw error; // Re-throw so caller can handle it
     }
@@ -241,7 +266,21 @@ const ReviewSubmit = ({
         console.log("✅ PDF generated and uploaded successfully");
       }
     } catch (pdfError) {
-      console.error("❌ PDF generation/upload failed:", pdfError);
+      logContractFailure({
+        contractId: "C-004",
+        message: "PDF generation or upload failed during order submission",
+        expected: { success: true, pdfUrl: "string" },
+        actual: {
+          message: pdfError.message,
+          response: pdfError.response?.body,
+        },
+        system: "HubSpot",
+        entityType: "Order",
+        entityId: orderIdToUpdate,
+        operation: "GENERATE_PDF",
+        trace: ["ReviewSubmit", "submitOrder", "generatePDF"],
+        nextCheck: "Check PDF generation service and HubSpot file upload API",
+      });
     }
 
     // Step 3: Save PDF URL to order
@@ -254,7 +293,21 @@ const ReviewSubmit = ({
           await updateOrderStatus("Submitted", orderIdToUpdate, pdfUrl);
           console.log("✅ PDF URL saved to order");
         } catch (error) {
-          console.error("❌ Failed to save PDF URL:", error);
+          logContractFailure({
+            contractId: "C-002",
+            message: "Failed to save PDF URL to order",
+            expected: { success: true },
+            actual: {
+              message: error.message,
+            },
+            system: "HubSpot",
+            entityType: "Order",
+            entityId: orderIdToUpdate,
+            field: "order_pdf",
+            operation: "UPDATE",
+            trace: ["ReviewSubmit", "submitOrder", "savePdfUrl"],
+            nextCheck: "Check HubSpot API and order object property permissions",
+          });
         }
       }
     } else if (orderIdToUpdate) {
@@ -263,7 +316,20 @@ const ReviewSubmit = ({
         await updateOrderStatus("Submitted", orderIdToUpdate);
         console.log("✅ Order status updated");
       } catch (error) {
-        console.error("❌ Failed to update order status:", error);
+        logContractFailure({
+          contractId: "C-002",
+          message: "Failed to update order status to Submitted",
+          expected: { success: true },
+          actual: {
+            message: error.message,
+          },
+          system: "HubSpot",
+          entityType: "Order",
+          entityId: orderIdToUpdate,
+          operation: "UPDATE",
+          trace: ["ReviewSubmit", "submitOrder", "updateStatus"],
+          nextCheck: "Check HubSpot API and order status field permissions",
+        });
       }
     }
 

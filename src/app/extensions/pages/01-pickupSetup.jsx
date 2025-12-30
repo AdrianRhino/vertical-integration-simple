@@ -1,6 +1,7 @@
 import { Select } from "@hubspot/ui-extensions";
 import { useEffect, useState } from "react";
 import { supplierOptions, templateOptions } from "../helperFunctions/appOptions";
+import { logContractFailure } from "../helperFunctions/debugCheckLogger";
 
 const PickSetup = ({ order, setOrder, context, runServerless, setCanGoNext }) => {
   const [tickets, setTickets] = useState([]);
@@ -26,9 +27,21 @@ const PickSetup = ({ order, setOrder, context, runServerless, setCanGoNext }) =>
         name: "getTickets",
         parameters: { context },
       });
-      setTickets(response.response.body.tickets || []);
+      // Handle both response structures (response.response.body or response.body)
+      const ticketsData = response?.response?.body?.tickets || response?.body?.tickets || [];
+      setTickets(ticketsData);
     } catch (err) {
-      console.error("Error fetching tickets:", err);
+      logContractFailure({
+        contractId: "C-002",
+        message: "Failed to fetch tickets from HubSpot",
+        expected: { success: true, tickets: "array" },
+        actual: { message: err.message },
+        system: "HubSpot",
+        entityType: "Ticket",
+        operation: "READ",
+        trace: ["PickupSetup", "loadTickets"],
+        nextCheck: "Check getTickets serverless function and HubSpot API",
+      });
     }
   };
 

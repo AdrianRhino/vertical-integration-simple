@@ -11,6 +11,7 @@
 
 const axios = require("axios");
 const { getCredentials } = require("../config/getCredentials");
+const { logContractFailure, logInvariantViolation } = require("../../../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
     const { abcAccessToken, fullOrder, environment = null } = context.parameters || {};
@@ -31,7 +32,16 @@ exports.main = async (context = {}) => {
     console.log("ABC Pricing - Token preview:", abcAccessToken ? String(abcAccessToken).substring(0, 20) + "..." : "none");
 
     if (!abcAccessToken) {
-        console.error("No ABC access token provided");
+        logInvariantViolation({
+          invariantId: "I-001",
+          message: "ABC access token is required for pricing request",
+          expected: { abcAccessToken: "string" },
+          actual: { abcAccessToken: null },
+          system: "ABC Supply",
+          operation: "GET_PRICING",
+          trace: ["getABCPricing", "validateToken"],
+          nextCheck: "Ensure ABC authentication is called before pricing request",
+        });
         return {
             success: false,
             message: "No ABC access token provided",
@@ -39,7 +49,16 @@ exports.main = async (context = {}) => {
     }
 
     if (!fullOrder) {
-        console.error("No full order provided");
+        logInvariantViolation({
+          invariantId: "I-004",
+          message: "Full order is required for pricing request",
+          expected: { fullOrder: "object" },
+          actual: { fullOrder: null },
+          system: "ABC Supply",
+          operation: "GET_PRICING",
+          trace: ["getABCPricing", "validateOrder"],
+          nextCheck: "Ensure fullOrder is passed in context parameters",
+        });
         return {
             success: false,
             message: "No full order provided",
@@ -95,13 +114,24 @@ exports.main = async (context = {}) => {
             environment: credentials.environment,
         };
     } catch (error) {
-        console.error("❌ ABC Pricing Error Details:");
-        console.error("  Status:", error.response?.status);
-        console.error("  Status Text:", error.response?.statusText);
-        console.error("  Error Message:", error.message);
-        console.error("  Response Data:", error.response?.data);
-        console.error("  Request URL:", error.config?.url);
-        console.error("  Request Headers (Authorization present):", !!error.config?.headers?.Authorization);
+        logContractFailure({
+          contractId: "C-005",
+          message: "ABC Supply pricing API request failed",
+          expected: { status: 200, data: "pricing object" },
+          actual: {
+            status: error.response?.status,
+            statusText: error.response?.statusText,
+            data: error.response?.data,
+            message: error.message,
+            url: error.config?.url,
+            hasAuth: !!error.config?.headers?.Authorization,
+          },
+          system: "ABC Supply",
+          integration: "ABCAdapter",
+          operation: "GET_PRICING",
+          trace: ["getABCPricing", "pricingRequest"],
+          nextCheck: "Check ABC access token validity, API endpoint, and request payload format",
+        });
         
         // ✅ Return more detailed error information
         return {

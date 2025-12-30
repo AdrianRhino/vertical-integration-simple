@@ -5,6 +5,7 @@
 
 const axios = require("axios");
 const { getCredentials } = require("../config/getCredentials");
+const { logContractFailure } = require("../../../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
   const { environment = null } = context.parameters || {};
@@ -50,7 +51,21 @@ exports.main = async (context = {}) => {
       }
     };
   } catch (error) {
-    console.error("SRS Login failed:", error.response?.data || error.message);
+    logContractFailure({
+      contractId: "C-003",
+      message: "SRS Distribution authentication failed",
+      expected: { success: true, access_token: "string" },
+      actual: {
+        status: error.response?.status,
+        data: error.response?.data,
+        message: error.message,
+      },
+      system: "SRS Distribution",
+      integration: "SRSAdapter",
+      operation: "AUTHENTICATE",
+      trace: ["srsLogin", "oauthTokenRequest"],
+      nextCheck: "Check SRS credentials (clientId/clientSecret) and API endpoint availability",
+    });
     return {
       statusCode: error.response?.status || 500,
       body: {

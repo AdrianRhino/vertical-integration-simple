@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Text, Select } from "@hubspot/ui-extensions";
 import { hubspot } from "@hubspot/ui-extensions";
 import { appOptions } from "../helperFunctions/appOptions";
+import { logContractFailure } from "../helperFunctions/debugCheckLogger";
 
 const OrderStart = ({ order, setOrder, context, setStatus, clearOrder, setCurrentPage, setCanGoNext }) => {
   const [allOrders, setAllOrders] = useState([]);
@@ -65,7 +66,16 @@ const OrderStart = ({ order, setOrder, context, setStatus, clearOrder, setCurren
       });
       setAllOrders(response.body.orders || []);
     } catch (error) {
-      console.error("Error getting orders:", error);
+      logContractFailure({
+        contractId: "C-002",
+        message: "Failed to load draft orders",
+        expected: { success: true, orders: "array" },
+        actual: { message: error.message },
+        system: "HubSpot",
+        operation: "READ",
+        trace: ["OrderStart", "loadAllOrders"],
+        nextCheck: "Check getDraftOrders serverless function and HubSpot API",
+      });
     }
   };
 

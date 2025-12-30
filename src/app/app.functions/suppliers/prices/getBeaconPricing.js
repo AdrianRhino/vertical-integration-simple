@@ -11,6 +11,7 @@
 
 const axios = require("axios");
 const { getCredentials } = require("../config/getCredentials");
+const { logContractFailure, logInvariantViolation } = require("../../../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
 
@@ -21,7 +22,16 @@ exports.main = async (context = {}) => {
     const { cookies, fullOrder, environment = null } = context.parameters || {};
 
     if (!cookies) {
-        console.error("No cookies provided");
+        logInvariantViolation({
+          invariantId: "I-001",
+          message: "Beacon cookies are required for pricing request",
+          expected: { cookies: "string" },
+          actual: { cookies: null },
+          system: "Beacon Building Products",
+          operation: "GET_PRICING",
+          trace: ["getBeaconPricing", "validateCookies"],
+          nextCheck: "Ensure Beacon authentication is called before pricing request",
+        });
         return {
             success: false,
             message: "No cookies provided",
@@ -29,7 +39,16 @@ exports.main = async (context = {}) => {
     }
 
     if (!fullOrder) {
-        console.error("No full order provided");
+        logInvariantViolation({
+          invariantId: "I-004",
+          message: "Full order is required for pricing request",
+          expected: { fullOrder: "object" },
+          actual: { fullOrder: null },
+          system: "Beacon Building Products",
+          operation: "GET_PRICING",
+          trace: ["getBeaconPricing", "validateOrder"],
+          nextCheck: "Ensure fullOrder is passed in context parameters",
+        });
         return {
             success: false,
             message: "No full order provided",
@@ -69,7 +88,21 @@ exports.main = async (context = {}) => {
             environment: credentials.environment,
         };
     } catch (error) {
-        console.error("Error in Beacon Pricing: ", error);
+        logContractFailure({
+          contractId: "C-005",
+          message: "Beacon Building Products pricing API request failed",
+          expected: { status: 200, data: "pricing object" },
+          actual: {
+            status: error.response?.status,
+            data: error.response?.data,
+            message: error.message,
+          },
+          system: "Beacon Building Products",
+          integration: "BeaconAdapter",
+          operation: "GET_PRICING",
+          trace: ["getBeaconPricing", "pricingRequest"],
+          nextCheck: "Check Beacon session cookies validity, API endpoint, and request parameters",
+        });
         return {
             success: false,
             message: "Error in Beacon Pricing",

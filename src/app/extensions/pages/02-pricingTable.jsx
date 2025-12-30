@@ -25,6 +25,7 @@ import {
 import { useState, useEffect } from "react";
 import { units } from "../helperFunctions/helper";
 import { moneyFormatter, toSentenceCase } from "../helperFunctions/helper";
+import { logContractFailure, logInvariantViolation } from "../helperFunctions/debugCheckLogger";
 
 const PricingTable = ({
   order,
@@ -690,8 +691,20 @@ const PricingTable = ({
                       extractNestedValue(response, 'success');
       
       if (error || success === false) {
-        console.error("❌ ABC Login failed with error:", error || "Unknown error");
-        console.error("Full error response:", response?.response?.body || response?.body);
+        logContractFailure({
+          contractId: "C-003",
+          message: "ABC Supply authentication failed in pricing table",
+          expected: { success: true, access_token: "string" },
+          actual: {
+            error: error || "Unknown error",
+            response: response?.response?.body || response?.body,
+          },
+          system: "ABC Supply",
+          integration: "ABCAdapter",
+          operation: "AUTHENTICATE",
+          trace: ["PricingTable", "authenticateABC"],
+          nextCheck: "Check ABC credentials and authentication serverless function",
+        });
         return null;
       }
       
@@ -704,15 +717,21 @@ const PricingTable = ({
                     extractNestedValue(response, 'access_token');
       
       if (!token) {
-        console.error("❌ Failed to extract ABC access token from response");
-        console.error("Response structure:", Object.keys(response || {}));
-        // Try to log what we actually got
-        if (response?.body) {
-          console.error("Response.body:", response.body);
-        }
-        if (response?.response?.body) {
-          console.error("Response.response.body:", response.response.body);
-        }
+        logContractFailure({
+          contractId: "C-006",
+          message: "Failed to extract ABC access token from authentication response",
+          expected: { access_token: "string" },
+          actual: {
+            responseStructure: Object.keys(response || {}),
+            body: response?.body,
+            responseBody: response?.response?.body,
+          },
+          system: "ABC Supply",
+          integration: "ABCAdapter",
+          operation: "AUTHENTICATE",
+          trace: ["PricingTable", "authenticateABC", "extractToken"],
+          nextCheck: "Check authentication response structure and token extraction logic",
+        });
         return null;
       }
       
@@ -722,7 +741,20 @@ const PricingTable = ({
       console.log("Token preview:", token ? String(token).substring(0, 20) + "..." : "none");
       return token;
     } catch (error) {
-      console.error("❌ ABC authentication failed:", error);
+      logContractFailure({
+        contractId: "C-003",
+        message: "Exception during ABC authentication",
+        expected: { success: true, token: "string" },
+        actual: {
+          message: error.message,
+          stack: error.stack,
+        },
+        system: "ABC Supply",
+        integration: "ABCAdapter",
+        operation: "AUTHENTICATE",
+        trace: ["PricingTable", "authenticateABC"],
+        nextCheck: "Check network connectivity and ABC authentication endpoint",
+      });
       return null;
     }
   };
@@ -747,8 +779,20 @@ const PricingTable = ({
                       extractNestedValue(response, 'body.success');
       
       if (error || success === false) {
-        console.error("❌ SRS Login failed with error:", error || "Unknown error");
-        console.error("Full error response:", response?.response?.body || response?.body);
+        logContractFailure({
+          contractId: "C-003",
+          message: "SRS Distribution authentication failed in pricing table",
+          expected: { success: true, access_token: "string" },
+          actual: {
+            error: error || "Unknown error",
+            response: response?.response?.body || response?.body,
+          },
+          system: "SRS Distribution",
+          integration: "SRSAdapter",
+          operation: "AUTHENTICATE",
+          trace: ["PricingTable", "authenticateSRS"],
+          nextCheck: "Check SRS credentials and authentication serverless function",
+        });
         return null;
       }
       
@@ -761,18 +805,40 @@ const PricingTable = ({
                     extractNestedValue(response, 'access_token');
       
       if (!token) {
-        console.error("❌ Failed to extract SRS access token from response");
-        console.error("Response structure:", Object.keys(response || {}));
-        if (response?.response?.body) {
-          console.error("Response.response.body:", response.response.body);
-        }
+        logContractFailure({
+          contractId: "C-006",
+          message: "Failed to extract SRS access token from authentication response",
+          expected: { access_token: "string" },
+          actual: {
+            responseStructure: Object.keys(response || {}),
+            responseBody: response?.response?.body,
+          },
+          system: "SRS Distribution",
+          integration: "SRSAdapter",
+          operation: "AUTHENTICATE",
+          trace: ["PricingTable", "authenticateSRS", "extractToken"],
+          nextCheck: "Check authentication response structure and token extraction logic",
+        });
         return null;
       }
       
       console.log("✅ SRS access token obtained");
       return token;
     } catch (error) {
-      console.error("❌ SRS authentication failed:", error);
+      logContractFailure({
+        contractId: "C-003",
+        message: "Exception during SRS authentication",
+        expected: { success: true, token: "string" },
+        actual: {
+          message: error.message,
+          stack: error.stack,
+        },
+        system: "SRS Distribution",
+        integration: "SRSAdapter",
+        operation: "AUTHENTICATE",
+        trace: ["PricingTable", "authenticateSRS"],
+        nextCheck: "Check network connectivity and SRS authentication endpoint",
+      });
       return null;
     }
   };
@@ -797,8 +863,20 @@ const PricingTable = ({
                       extractNestedValue(response, 'body.success');
       
       if (error || success === false) {
-        console.error("❌ Beacon Login failed with error:", error || "Unknown error");
-        console.error("Full error response:", response?.response?.body || response?.body);
+        logContractFailure({
+          contractId: "C-003",
+          message: "Beacon Building Products authentication failed in pricing table",
+          expected: { success: true, cookies: "string" },
+          actual: {
+            error: error || "Unknown error",
+            response: response?.response?.body || response?.body,
+          },
+          system: "Beacon Building Products",
+          integration: "BeaconAdapter",
+          operation: "AUTHENTICATE",
+          trace: ["PricingTable", "authenticateBeacon"],
+          nextCheck: "Check Beacon credentials and authentication serverless function",
+        });
         return null;
       }
       
@@ -811,18 +889,40 @@ const PricingTable = ({
                       extractNestedValue(response, 'cookies');
       
       if (!cookies) {
-        console.error("❌ Failed to extract Beacon cookies from response");
-        console.error("Response structure:", Object.keys(response || {}));
-        if (response?.response?.body) {
-          console.error("Response.response.body:", response.response.body);
-        }
+        logContractFailure({
+          contractId: "C-006",
+          message: "Failed to extract Beacon cookies from authentication response",
+          expected: { cookies: "string" },
+          actual: {
+            responseStructure: Object.keys(response || {}),
+            responseBody: response?.response?.body,
+          },
+          system: "Beacon Building Products",
+          integration: "BeaconAdapter",
+          operation: "AUTHENTICATE",
+          trace: ["PricingTable", "authenticateBeacon", "extractCookies"],
+          nextCheck: "Check authentication response structure and cookie extraction logic",
+        });
         return null;
       }
       
       console.log("✅ Beacon cookies obtained");
       return cookies;
     } catch (error) {
-      console.error("❌ Beacon authentication failed:", error);
+      logContractFailure({
+        contractId: "C-003",
+        message: "Exception during Beacon authentication",
+        expected: { success: true, cookies: "string" },
+        actual: {
+          message: error.message,
+          stack: error.stack,
+        },
+        system: "Beacon Building Products",
+        integration: "BeaconAdapter",
+        operation: "AUTHENTICATE",
+        trace: ["PricingTable", "authenticateBeacon"],
+        nextCheck: "Check network connectivity and Beacon authentication endpoint",
+      });
       return null;
     }
   };
@@ -908,7 +1008,19 @@ const PricingTable = ({
         updatePricesFromBeacon(response);
       }
     } catch (error) {
-      console.error("Pricing error:", error);
+      logContractFailure({
+        contractId: "C-005",
+        message: "Pricing fetch failed for supplier",
+        expected: { success: true, pricing: "object" },
+        actual: {
+          message: error.message,
+          supplier: order.supplier,
+        },
+        system: order.supplier,
+        operation: "GET_PRICING",
+        trace: ["PricingTable", "getPricing"],
+        nextCheck: "Check supplier authentication and pricing API availability",
+      });
       // Mark all items with error
       const updatedItems = items.map(item => ({
         ...item,
