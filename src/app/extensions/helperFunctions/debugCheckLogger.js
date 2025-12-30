@@ -71,9 +71,35 @@ function formatHeader(e) {
  */
 function safeJson(x) {
   try {
-    return JSON.stringify(x, null, 2);
-  } catch {
-    return String(x);
+    // Handle circular references and non-serializable values
+    const seen = new WeakSet();
+    return JSON.stringify(x, (key, value) => {
+      if (typeof value === "object" && value !== null) {
+        if (seen.has(value)) {
+          return "[Circular]";
+        }
+        seen.add(value);
+      }
+      // Convert undefined to null for JSON compatibility
+      if (value === undefined) {
+        return null;
+      }
+      // Handle Error objects specially
+      if (value instanceof Error) {
+        return {
+          name: value.name,
+          message: value.message,
+          stack: value.stack,
+        };
+      }
+      return value;
+    }, 2);
+  } catch (err) {
+    try {
+      return String(x);
+    } catch {
+      return "[Unable to stringify]";
+    }
   }
 }
 
@@ -211,4 +237,5 @@ export function assertInvariant(condition, event) {
     );
   }
 }
+
 

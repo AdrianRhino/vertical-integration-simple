@@ -606,6 +606,18 @@ const PricingTable = ({
   };
 
   // Helper function to extract nested value from response (handles HubSpot wrapping)
+  // Helper function to normalize SKU for accurate matching
+  const normalizeSku = (sku) => {
+    if (!sku) return "";
+    return String(sku).trim().toUpperCase();
+  };
+
+  // Helper function to check if two SKUs match exactly
+  const skuMatches = (sku1, sku2) => {
+    if (!sku1 || !sku2) return false;
+    return normalizeSku(sku1) === normalizeSku(sku2);
+  };
+
   const extractNestedValue = (response, dataPath) => {
     if (!response) return undefined;
     
@@ -671,11 +683,21 @@ const PricingTable = ({
   };
 
   // Helper function to get ABC access token
-  const getABCAccessToken = async () => {
+  const getABCAccessToken = async (environment = null) => {
     try {
+      // WORKAROUND: HubSpot runServerless seems to filter empty strings, so always pass a value
+      // If environment is null/empty, pass "sandbox" as default, otherwise pass the actual value
+      const envValue = environment && environment.trim() ? String(environment).trim() : "sandbox";
+      // Try using both 'environment' and 'env' parameter names in case one is filtered
+      const params = {
+        environment: envValue,
+        env: envValue, // Backup parameter name
+        abcEnvironment: envValue // Another backup
+      };
+      console.log("🔍 getABCAccessToken - Input environment:", environment, "Passing envValue:", envValue, "Full params:", JSON.stringify(params));
       const response = await runServerless({
         name: "abcLogin",
-        parameters: {}
+        parameters: params
       });
       
       // Debug: Log full response structure
@@ -932,17 +954,24 @@ const PricingTable = ({
     const supplier = (order.supplier || "").toLowerCase();
     if (!supplier) return;
 
-    // Transform order structure: pricing functions expect fullOrder.fullOrderItems
-    const fullOrder = {
-      ...order,
-      fullOrderItems: order.items || []
-    };
-
     let response;
     try {
       if (supplier === "abc") {
-        // ✅ Authenticate first
-        const abcAccessToken = await getABCAccessToken();
+        // ✅ TESTING: Use production environment for pricing test
+        const TEST_PRODUCTION = true; // Set to true to test production
+        const authEnvironment = TEST_PRODUCTION ? "prod" : null;
+        console.log("🔍 TEST_PRODUCTION:", TEST_PRODUCTION, "authEnvironment:", authEnvironment);
+        
+        // WORKAROUND: Get token with environment, but also pass it via fullOrder
+        const abcAccessToken = await getABCAccessToken(authEnvironment);
+        
+        // Transform order structure: pricing functions expect fullOrder.fullOrderItems
+        // WORKAROUND: Embed environment in fullOrder since HubSpot parameter passing doesn't work
+        const fullOrder = {
+          ...order,
+          fullOrderItems: order.items || [],
+          _environment: TEST_PRODUCTION ? "prod" : "sandbox" // Embed environment in order object
+        };
         if (!abcAccessToken) {
           console.error("❌ Cannot get pricing: ABC authentication failed");
           // Mark all items with authentication error
@@ -954,12 +983,21 @@ const PricingTable = ({
           return;
         }
         
+        // WORKAROUND: HubSpot runServerless seems to filter empty strings, so always pass a value
+        // If authEnvironment is null/empty, pass "sandbox" as default, otherwise pass the actual value
+        const envValue = authEnvironment && authEnvironment.trim() ? String(authEnvironment).trim() : "sandbox";
+        // Try using both 'environment' and 'env' parameter names in case one is filtered
+        const pricingParams = {
+          fullOrder: fullOrder,
+          abcAccessToken: abcAccessToken,
+          environment: envValue, // Pass prod environment to pricing function
+          env: envValue, // Backup parameter name
+          abcEnvironment: envValue // Another backup
+        };
+        console.log("🔍 Calling abcPricing - Input authEnvironment:", authEnvironment, "Passing envValue:", envValue, "Full params:", JSON.stringify(pricingParams));
         response = await runServerless({
           name: "abcPricing",
-          parameters: { 
-            fullOrder: fullOrder,
-            abcAccessToken: abcAccessToken
-          },
+          parameters: pricingParams
         });
         updatePricesFromABC(response);
       } else if (supplier === "srs") {
@@ -1013,7 +1051,7 @@ const PricingTable = ({
         message: "Pricing fetch failed for supplier",
         expected: { success: true, pricing: "object" },
         actual: {
-          message: error.message,
+          message: error?.message || String(error) || "Unknown error",
           supplier: order.supplier,
         },
         system: order.supplier,
@@ -1036,107 +1074,140 @@ const PricingTable = ({
     console.log("🔍 ABC Pricing Response (full):", JSON.stringify(response, null, 2));
     
     // Try multiple response paths to extract price data
-    const priceData = extractNestedValue(response, 'data.lines') || 
+    const priceData = extractNestedValue(response, 'response.body.data.lines') ||
+                      extractNestedValue(response, 'response.data.lines') ||
+                      extractNestedValue(response, 'data.lines') || 
+                      extractNestedValue(response, 'body.data.lines') ||
                       extractNestedValue(response, 'lines') || 
                       [];
     
     console.log("📊 Extracted priceData:", priceData);
     console.log("📊 PriceData length:", priceData.length);
+    console.log("📊 Requested items count:", items.length);
+    
+    // Validate response structure
+    if (!Array.isArray(priceData)) {
+      console.error("❌ ABC response priceData is not an array:", typeof priceData);
+      const updatedItems = items.map(item => ({
+        ...item,
+        pricingError: "Invalid response structure",
+      }));
+      setItems(updatedItems);
+      return;
+    }
     
     if (priceData.length > 0) {
       console.log("📊 First price item structure:", JSON.stringify(priceData[0], null, 2));
       console.log("📊 First price item keys:", Object.keys(priceData[0] || {}));
     }
 
+    // Create a map for O(1) lookup by normalized SKU (like Beacon does)
+    const priceMap = new Map();
+    for (let j = 0; j < priceData.length; j++) {
+      const priceItem = priceData[j];
+      const sku = normalizeSku(priceItem.itemNumber || priceItem.sku || "");
+      if (sku) {
+        // Store with original item for reference, but key by normalized SKU
+        if (!priceMap.has(sku)) {
+          priceMap.set(sku, []);
+        }
+        priceMap.get(sku).push(priceItem);
+      }
+    }
+    
+    console.log("📊 Created priceMap with", priceMap.size, "unique SKUs");
+
     const updatedItems = [];
+    const matchedSkus = new Set();
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      const normalizedItemSku = normalizeSku(item.sku);
       let found = false;
 
-      // Simple loop to find matching price
-      for (let j = 0; j < priceData.length; j++) {
-        const priceItem = priceData[j];
+      // Use direct lookup (like Beacon) instead of array iteration
+      const matchingPriceItems = priceMap.get(normalizedItemSku) || [];
+      
+      if (matchingPriceItems.length > 0) {
+        // If multiple matches, prefer exact ID match, otherwise use first
+        let priceItem = matchingPriceItems[0];
         
-        // ✅ Match by both SKU and request ID (if available) for better accuracy
-        const skuMatch = priceItem.itemNumber === item.sku || 
-                        priceItem.itemNumber === String(item.sku) ||
-                        priceItem.sku === item.sku ||
-                        priceItem.sku === String(item.sku);
+        // If we have an item.id, try to find exact ID match
+        if (item.id && matchingPriceItems.length > 1) {
+          const idMatch = matchingPriceItems.find(p => 
+            p.id === item.id || String(p.id) === String(item.id)
+          );
+          if (idMatch) {
+            priceItem = idMatch;
+          }
+        }
         
-        // Also check if response has the request ID we sent (for validation)
-        const idMatch = !item.id || priceItem.id === item.id || 
-                        priceItem.id === String(item.id) ||
-                        !priceItem.id; // If response doesn't have ID, still match by SKU
-        
-        if (skuMatch && idMatch) {
-          found = true;
-          console.log(`✅ Found match for SKU ${item.sku}:`, JSON.stringify(priceItem, null, 2));
+        found = true;
+        matchedSkus.add(normalizedItemSku);
+        console.log(`✅ Found match for SKU ${item.sku} (normalized: ${normalizedItemSku}):`, JSON.stringify(priceItem, null, 2));
           
-          // Check for error status
-          if (priceItem.status && priceItem.status.code === "Error") {
-            console.log(`❌ Error status for SKU ${item.sku}:`, priceItem.status.message);
+        // Check for error status
+        if (priceItem.status && priceItem.status.code === "Error") {
+          console.log(`❌ Error status for SKU ${item.sku}:`, priceItem.status.message);
+          updatedItems.push({
+            ...item,
+            pricingError: priceItem.status.message,
+          });
+        } else {
+          // Try to extract price using multiple field names
+          const extractedPrice = extractPrice(priceItem);
+          
+          if (extractedPrice !== null && extractedPrice > 0) {
+            // ✅ Validate UOM match
+            const responseUom = (priceItem.uom || priceItem.unitOfMeasure || priceItem.unit_of_measure || "").toUpperCase().trim();
+            const requestedUom = (item.uom || "").toUpperCase().trim();
+            const uomMatches = !responseUom || responseUom === requestedUom;
+            
+            if (!uomMatches) {
+              console.warn(`⚠️ UOM mismatch for SKU ${item.sku}: requested "${requestedUom}", got "${responseUom}"`);
+              // Still use the price, but log the mismatch - supplier may have corrected the UOM
+            }
+            
+            const finalUom = responseUom || requestedUom;
+            
+            // ✅ Validate quantity matches (for quantity-based pricing)
+            const responseQty = priceItem.quantity || priceItem.qty;
+            const requestedQty = Number(item.qty) || 1;
+            if (responseQty && Number(responseQty) !== requestedQty) {
+              console.warn(`⚠️ Quantity mismatch for SKU ${item.sku}: requested ${requestedQty}, priced for ${responseQty}`);
+            }
+            
+            console.log(`💰 Price found for SKU ${item.sku} (UOM ${finalUom}, Qty ${requestedQty}): $${extractedPrice}`);
+            
+            // Update available UOMs if response provides them
+            let availableUoms = item.uoms || ["EA"];
+            if (priceItem.availableUoms && Array.isArray(priceItem.availableUoms)) {
+              availableUoms = priceItem.availableUoms.map(u => String(u).toUpperCase().trim());
+            } else if (responseUom && !availableUoms.includes(finalUom)) {
+              availableUoms = [...availableUoms, finalUom];
+            }
+            
             updatedItems.push({
               ...item,
-              pricingError: priceItem.status.message,
+              unitPrice: extractedPrice,
+              uom: finalUom, // Use UOM from response if available
+              uoms: availableUoms,
+              linePrice: requestedQty * extractedPrice,
+              pricingError: null,
+              pricingFetched: true,
             });
           } else {
-            // Try to extract price using multiple field names
-            const extractedPrice = extractPrice(priceItem);
-            
-            if (extractedPrice !== null && extractedPrice > 0) {
-              // ✅ Validate UOM match
-              const responseUom = (priceItem.uom || priceItem.unitOfMeasure || priceItem.unit_of_measure || "").toUpperCase().trim();
-              const requestedUom = (item.uom || "").toUpperCase().trim();
-              const uomMatches = !responseUom || responseUom === requestedUom;
-              
-              if (!uomMatches) {
-                console.warn(`⚠️ UOM mismatch for SKU ${item.sku}: requested "${requestedUom}", got "${responseUom}"`);
-                // Still use the price, but log the mismatch - supplier may have corrected the UOM
-              }
-              
-              const finalUom = responseUom || requestedUom;
-              
-              console.log(`💰 Price found for SKU ${item.sku} (UOM ${finalUom}): $${extractedPrice}`);
-              
-              // Update available UOMs if response provides them
-              let availableUoms = item.uoms || ["EA"];
-              if (priceItem.availableUoms && Array.isArray(priceItem.availableUoms)) {
-                availableUoms = priceItem.availableUoms.map(u => String(u).toUpperCase().trim());
-              } else if (responseUom && !availableUoms.includes(finalUom)) {
-                availableUoms = [...availableUoms, finalUom];
-              }
-              
-              // ✅ Validate quantity matches (for quantity-based pricing)
-              const responseQty = priceItem.quantity || priceItem.qty;
-              const requestedQty = Number(item.qty) || 1;
-              if (responseQty && Number(responseQty) !== requestedQty) {
-                console.warn(`⚠️ Quantity mismatch for SKU ${item.sku}: requested ${requestedQty}, priced for ${responseQty}`);
-              }
-              
-              updatedItems.push({
-                ...item,
-                unitPrice: extractedPrice,
-                uom: finalUom, // Use UOM from response if available
-                uoms: availableUoms,
-                linePrice: (Number(item.qty) || 1) * extractedPrice,
-                pricingError: null,
-                pricingFetched: true,
-              });
-            } else {
-              console.log(`⚠️ No valid price found for SKU ${item.sku}, priceItem:`, JSON.stringify(priceItem, null, 2));
-              updatedItems.push({
-                ...item,
-                pricingError: "Price unavailable",
-              });
-            }
+            console.log(`⚠️ No valid price found for SKU ${item.sku}, priceItem:`, JSON.stringify(priceItem, null, 2));
+            updatedItems.push({
+              ...item,
+              pricingError: "Price unavailable",
+            });
           }
-          break;
         }
       }
 
       if (!found) {
-        console.log(`❌ SKU ${item.sku} not found in priceData`);
+        console.log(`❌ SKU ${item.sku} (normalized: ${normalizedItemSku}) not found in priceData`);
         updatedItems.push({
           ...item,
           pricingError: "SKU not found",
@@ -1144,7 +1215,13 @@ const PricingTable = ({
       }
     }
 
-    console.log("✅ Updated items:", updatedItems.length);
+    // Validation: Check if all requested SKUs were matched
+    const unmatchedCount = items.length - matchedSkus.size;
+    if (unmatchedCount > 0) {
+      console.warn(`⚠️ ${unmatchedCount} requested SKU(s) were not found in ABC response`);
+    }
+    
+    console.log("✅ Updated items:", updatedItems.length, `(${matchedSkus.size} matched, ${unmatchedCount} unmatched)`);
     setItems(updatedItems);
   };
 
@@ -1152,48 +1229,83 @@ const PricingTable = ({
   const updatePricesFromSRS = (response) => {
     console.log("🔍 SRS Pricing Response (full):", JSON.stringify(response, null, 2));
     
-    // Try multiple response paths
-    const priceData = extractNestedValue(response, 'data.productList') || 
+    // Try multiple response paths to extract price data
+    const priceData = extractNestedValue(response, 'response.body.data.productList') ||
+                      extractNestedValue(response, 'response.data.productList') ||
+                      extractNestedValue(response, 'data.productList') || 
+                      extractNestedValue(response, 'body.data.productList') ||
                       extractNestedValue(response, 'productList') || 
-                      extractNestedValue(response, 'response.data.productList') || 
                       [];
     
     console.log("📊 Extracted priceData:", priceData);
     console.log("📊 PriceData length:", priceData.length);
+    console.log("📊 Requested items count:", items.length);
     
-    if (!response.success && !priceData.length) {
+    // Validate response structure
+    if (!Array.isArray(priceData)) {
+      console.error("❌ SRS response priceData is not an array:", typeof priceData);
+      const updatedItems = items.map(item => ({
+        ...item,
+        pricingError: "Invalid response structure",
+      }));
+      setItems(updatedItems);
+      return;
+    }
+    
+    if (!priceData.length) {
       // Mark all as needing pricing
-      const updatedItems = [];
-      for (let i = 0; i < items.length; i++) {
-        updatedItems.push({
-          ...items[i],
-          pricingError: "SKU not found - call for pricing",
-        });
-      }
+      const updatedItems = items.map(item => ({
+        ...item,
+        pricingError: "SKU not found - call for pricing",
+      }));
       setItems(updatedItems);
       return;
     }
 
+    // Create a map for O(1) lookup by normalized SKU (like Beacon does)
+    // SRS can have itemCode or productId, so we need to index by both
+    const priceMap = new Map();
+    for (let j = 0; j < priceData.length; j++) {
+      const priceItem = priceData[j];
+      // Prioritize itemCode (which comes from sku), then productId
+      const primarySku = normalizeSku(priceItem.itemCode || priceItem.sku || "");
+      const secondarySku = priceItem.productId ? normalizeSku(String(priceItem.productId)) : null;
+      
+      if (primarySku) {
+        if (!priceMap.has(primarySku)) {
+          priceMap.set(primarySku, []);
+        }
+        priceMap.get(primarySku).push(priceItem);
+      }
+      
+      // Also index by productId if it's different from itemCode
+      if (secondarySku && secondarySku !== primarySku) {
+        if (!priceMap.has(secondarySku)) {
+          priceMap.set(secondarySku, []);
+        }
+        priceMap.get(secondarySku).push(priceItem);
+      }
+    }
+    
+    console.log("📊 Created priceMap with", priceMap.size, "unique SKUs");
+
     const updatedItems = [];
+    const matchedSkus = new Set();
 
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      const normalizedItemSku = normalizeSku(item.sku);
       let found = false;
 
-      for (let j = 0; j < priceData.length; j++) {
-        const priceItem = priceData[j];
-        
-        // ✅ Match by multiple identifier fields
-        const skuMatch = priceItem.productId === item.sku ||
-                        priceItem.productId === String(item.sku) ||
-                        priceItem.itemCode === item.sku ||
-                        priceItem.itemCode === String(item.sku) ||
-                        priceItem.sku === item.sku ||
-                        priceItem.sku === String(item.sku);
-        
-        if (skuMatch) {
-          found = true;
-          console.log(`✅ Found match for SKU ${item.sku}:`, JSON.stringify(priceItem, null, 2));
+      // Use direct lookup (like Beacon) instead of array iteration
+      const matchingPriceItems = priceMap.get(normalizedItemSku) || [];
+      
+      if (matchingPriceItems.length > 0) {
+        // Use first match (SRS typically returns one item per SKU)
+        const priceItem = matchingPriceItems[0];
+        found = true;
+        matchedSkus.add(normalizedItemSku);
+        console.log(`✅ Found match for SKU ${item.sku} (normalized: ${normalizedItemSku}):`, JSON.stringify(priceItem, null, 2));
           
           if (priceItem.error || (priceItem.unitPrice === 0 && priceItem.message)) {
             updatedItems.push({
@@ -1222,29 +1334,29 @@ const PricingTable = ({
                 console.warn(`⚠️ Quantity mismatch for SKU ${item.sku}: requested ${requestedQty}, priced for ${responseQty}`);
               }
               
-              console.log(`💰 Price found for SKU ${item.sku} (UOM ${finalUom}): $${extractedPrice}`);
+              console.log(`💰 Price found for SKU ${item.sku} (UOM ${finalUom}, Qty ${requestedQty}): $${extractedPrice}`);
               
               updatedItems.push({
                 ...item,
                 unitPrice: extractedPrice,
                 uom: finalUom,
-                linePrice: (Number(item.qty) || 1) * extractedPrice,
+                linePrice: requestedQty * extractedPrice,
                 pricingError: null,
                 pricingFetched: true,
               });
             } else {
+              console.log(`⚠️ No valid price found for SKU ${item.sku}, priceItem:`, JSON.stringify(priceItem, null, 2));
               updatedItems.push({
                 ...item,
                 pricingError: "Price unavailable",
               });
             }
           }
-          break;
         }
       }
 
       if (!found) {
-        console.log(`❌ SKU ${item.sku} not found in priceData`);
+        console.log(`❌ SKU ${item.sku} (normalized: ${normalizedItemSku}) not found in priceData`);
         updatedItems.push({
           ...item,
           pricingError: "SKU not found - call for pricing",
@@ -1252,7 +1364,13 @@ const PricingTable = ({
       }
     }
 
-    console.log("✅ Updated items:", updatedItems.length);
+    // Validation: Check if all requested SKUs were matched
+    const unmatchedCount = items.length - matchedSkus.size;
+    if (unmatchedCount > 0) {
+      console.warn(`⚠️ ${unmatchedCount} requested SKU(s) were not found in SRS response`);
+    }
+    
+    console.log("✅ Updated items:", updatedItems.length, `(${matchedSkus.size} matched, ${unmatchedCount} unmatched)`);
     setItems(updatedItems);
   };
 

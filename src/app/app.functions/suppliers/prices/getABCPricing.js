@@ -14,7 +14,34 @@ const { getCredentials } = require("../config/getCredentials");
 const { logContractFailure, logInvariantViolation } = require("../../../utils/debugCheckLogger");
 
 exports.main = async (context = {}) => {
-    const { abcAccessToken, fullOrder, environment = null } = context.parameters || {};
+    // Debug: Log full context first
+    console.log("🔍 ABC Pricing - Full context.parameters:", JSON.stringify(context.parameters || {}, null, 2));
+    
+    // Debug: Log FULL parameters object first
+    console.log("🔍 ABC Pricing - RAW context.parameters:", JSON.stringify(context.parameters || {}, null, 2));
+    console.log("🔍 ABC Pricing - context.parameters keys:", Object.keys(context.parameters || {}));
+    console.log("🔍 ABC Pricing - context.parameters.environment value:", context.parameters?.environment, "type:", typeof context.parameters?.environment);
+    
+    // Handle environment - try multiple sources since HubSpot parameter passing is unreliable
+    // 1. Try direct parameter (may be filtered by HubSpot)
+    // 2. Try embedded in fullOrder object (workaround)
+    const envParam = context.parameters?.environment || 
+                     context.parameters?.env || 
+                     context.parameters?.abcEnvironment ||
+                     context.parameters?.fullOrder?._environment;
+    const environment = (envParam === "prod") ? "prod" : null; // null = use master config (sandbox)
+    const { abcAccessToken, fullOrder, pricingUrlOverride = null } = context.parameters || {};
+    
+    // Debug: Log received parameters
+    console.log("🔍 ABC Pricing Parameters (destructured):", {
+        hasToken: !!abcAccessToken,
+        hasFullOrder: !!fullOrder,
+        environment: environment,
+        envParam: envParam,
+        pricingUrlOverride: pricingUrlOverride,
+        pricingUrlOverrideType: typeof pricingUrlOverride,
+        pricingUrlOverrideValue: String(pricingUrlOverride)
+    });
 
     {/*
         Test Product
@@ -30,6 +57,10 @@ exports.main = async (context = {}) => {
     console.log("ABC Pricing - Token provided:", !!abcAccessToken);
     console.log("ABC Pricing - Token length:", abcAccessToken ? String(abcAccessToken).length : 0);
     console.log("ABC Pricing - Token preview:", abcAccessToken ? String(abcAccessToken).substring(0, 20) + "..." : "none");
+    // #region agent log
+    const tokenIssuer = abcAccessToken ? (() => { try { const payload = JSON.parse(Buffer.from(abcAccessToken.split('.')[1], 'base64').toString()); return payload.iss || 'unknown'; } catch(e) { return 'parse_error'; } })() : 'no_token';
+    fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'getABCPricing.js:48',message:'Token issuer extracted from JWT',data:{tokenIssuer,isProductionToken:!tokenIssuer.includes('sandbox'),isSandboxToken:tokenIssuer.includes('sandbox')},timestamp:Date.now(),sessionId:'debug-session',runId:'prod-test',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
 
     if (!abcAccessToken) {
         logInvariantViolation({
@@ -66,8 +97,14 @@ exports.main = async (context = {}) => {
     }
 
     // Get API base URL from credentials config
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'getABCPricing.js:88',message:'Before getCredentials call - Full context',data:{contextKeys:Object.keys(context),hasParameters:!!context.parameters,parametersKeys:context.parameters?Object.keys(context.parameters):[],environment,environmentType:typeof environment},timestamp:Date.now(),sessionId:'debug-session',runId:'prod-test',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     const credentials = getCredentials("ABC", environment);
     const apiBaseUrl = credentials.apiBaseUrl;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'getABCPricing.js:90',message:'After getCredentials call',data:{credentialsEnvironment:credentials.environment,apiBaseUrl,isProductionUrl:apiBaseUrl.includes('partners.abcsupply.com')&&!apiBaseUrl.includes('partners-sb'),isSandboxUrl:apiBaseUrl.includes('partners-sb')},timestamp:Date.now(),sessionId:'debug-session',runId:'prod-test',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
 
     // ✅ Normalize quantities and UOMs for accurate pricing
     const formattedLineItems = fullOrder.fullOrderItems.map(item => ({
@@ -77,13 +114,30 @@ exports.main = async (context = {}) => {
         uom: String(item.uom || "EA").toUpperCase().trim(), // ✅ Normalize UOM
     })).filter(item => item.itemNumber); // ✅ Filter out items without SKU
 
+    // Use override URL if provided (for testing), otherwise construct from apiBaseUrl
+    // Check explicitly for truthy value and non-empty string
+    const useOverride = pricingUrlOverride && String(pricingUrlOverride).trim().length > 0;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'getABCPricing.js:107',message:'Before pricingUrl calculation',data:{useOverride,pricingUrlOverride,apiBaseUrl,constructedUrl:`${apiBaseUrl}/api/pricing/v2/prices`},timestamp:Date.now(),sessionId:'debug-session',runId:'prod-test',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    const pricingUrl = useOverride ? String(pricingUrlOverride).trim() : `${apiBaseUrl}/api/pricing/v2/prices`;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'getABCPricing.js:109',message:'After pricingUrl calculation',data:{pricingUrl,usedOverride:useOverride,usedApiBaseUrl:!useOverride,isProductionUrl:pricingUrl.includes('partners.abcsupply.com')&&!pricingUrl.includes('partners-sb'),isSandboxUrl:pricingUrl.includes('partners-sb')},timestamp:Date.now(),sessionId:'debug-session',runId:'prod-test',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+
     console.log("Formatted Line Items:", formattedLineItems);
     console.log(`Using ABC API (${credentials.environment}): ${apiBaseUrl}`);
-    console.log(`Pricing URL: ${apiBaseUrl}/api/pricing/v2/prices`);
+    console.log(`pricingUrlOverride received:`, pricingUrlOverride);
+    console.log(`useOverride flag:`, useOverride);
+    if (useOverride) {
+        console.log(`⚠️⚠️⚠️ USING OVERRIDE PRICING URL: ${pricingUrl} ⚠️⚠️⚠️`);
+    } else {
+        console.log(`Using default pricing URL: ${pricingUrl}`);
+    }
 
     const config = {
         method: "post",
-        url: `${apiBaseUrl}/api/pricing/v2/prices`,
+        url: pricingUrl,
         headers: {
             Authorization: `Bearer ${abcAccessToken}`,
             "Content-Type": "application/json",
@@ -97,11 +151,15 @@ exports.main = async (context = {}) => {
             lines: formattedLineItems,
         },
     };
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'getABCPricing.js:141',message:'Request config created',data:{finalUrl:config.url,isProductionUrl:config.url.includes('partners.abcsupply.com')&&!config.url.includes('partners-sb'),isSandboxUrl:config.url.includes('partners-sb'),authHeaderPresent:!!config.headers.Authorization,authHeaderPrefix:config.headers.Authorization?.substring(0,7),shipToNumber:config.data.shipToNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'prod-test',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
     
     // ✅ Debug: Log request details (without sensitive data)
-    console.log("ABC Pricing Request URL:", config.url);
-    console.log("ABC Pricing Request - Line items count:", formattedLineItems.length);
-    console.log("ABC Pricing Request - Authorization header present:", !!config.headers.Authorization);
+    console.log("🔍 ABC Pricing Request URL (FINAL):", config.url);
+    console.log("🔍 ABC Pricing Request - Line items count:", formattedLineItems.length);
+    console.log("🔍 ABC Pricing Request - Authorization header present:", !!config.headers.Authorization);
+    console.log("🔍 ABC Pricing Request - Override was provided:", !!pricingUrlOverride);
     
     try {
         const response = await axios(config);
@@ -114,6 +172,9 @@ exports.main = async (context = {}) => {
             environment: credentials.environment,
         };
     } catch (error) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b131dc2d-5624-4f61-98fb-efc543f7726a',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'getABCPricing.js:163',message:'Error caught in pricing request',data:{errorStatus:error.response?.status,statusText:error.response?.statusText,errorMessage:error.response?.data?.error,errorData:error.response?.data,requestUrl:error.config?.url,isProductionUrl:error.config?.url?.includes('partners.abcsupply.com')&&!error.config?.url?.includes('partners-sb'),isSandboxUrl:error.config?.url?.includes('partners-sb'),credentialsEnv:credentials.environment},timestamp:Date.now(),sessionId:'debug-session',runId:'prod-test',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
         logContractFailure({
           contractId: "C-005",
           message: "ABC Supply pricing API request failed",
