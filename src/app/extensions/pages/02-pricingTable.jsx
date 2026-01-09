@@ -1493,6 +1493,7 @@ const PricingTable = ({
   }, [searchQuery, order.supplier]);
 
   const totalPrice = calculateTotal();
+}
 
   return (
     <>
