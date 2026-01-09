@@ -1,5 +1,5 @@
 {
-  "name": "Vertical Integration (hs ver. 2025.1)",
+  "name": "Simple Vertical Integration",
   "description": "This is a simple vertical integration extension that allows users to view and order products from ABC Supply, SRS Distribution, and Beacon (QXO) Building Products. Using verison 2025.1",
   "uid": "get_started_app",
   "scopes": ["crm.objects.contacts.read", "crm.objects.contacts.write", "crm.objects.deals.read", "crm.objects.deals.write"],
