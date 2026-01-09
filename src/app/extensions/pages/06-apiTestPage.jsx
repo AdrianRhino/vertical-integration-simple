@@ -56,7 +56,7 @@ const API_Test_Page = ({
       setCurrentStep("Logging into ABC Sandbox...");
       const response = await hubspot.serverless("abcLogin", {
         parameters: {
-          // No Parameters Needed
+          environment: "sandbox",
         },
       });
       const body = extractBody(response);
@@ -64,7 +64,7 @@ const API_Test_Page = ({
       if (body.success && body.access_token) {
         setLoginResult({
           success: true,
-          access_token: body.access_token.substring(0, 20) + "...",
+          access_token: body.access_token.substring(0, 10) + "...",
           expires_in: body.expires_in,
           environment: "sandbox",
         });
@@ -80,12 +80,12 @@ const API_Test_Page = ({
   };
 
   // Step 2: Get ABC Product from Supabase
-  const getProductsFromSupabase = async () => {
+  const getProductFromSupabase = async (supplier = "ABC") => {
     try {
-      setCurrentStep("Fetching ABC products from Supabase...");
+      setCurrentStep(`Fetching ${supplier} products from Supabase...`);
       const response = await hubspot.serverless("supplierProducts", {
         parameters: {
-          supplier: "ABC",
+          supplier: supplier,
           q: "",
           pageSize: 1,
         },
@@ -93,6 +93,7 @@ const API_Test_Page = ({
 
       const body = extractBody(response);
       if (body.success && body.items && body.items.length > 0) {
+        const product = body.items[0];
         setProductResult({
           success: true,
           product: {
@@ -138,7 +139,7 @@ const API_Test_Page = ({
         ],
       };
 
-      const response = await hubspot.serverless("getABCPricing", {
+      const response = await hubspot.serverless("abcPricing", {
         parameters: {
           abcAccessToken: accessToken,
           fullOrder: fullOrder,
@@ -176,9 +177,11 @@ const API_Test_Page = ({
     try {
       // Step 1: Login
       const accessToken = await testSandboxLogin();
+      //console.log("AccessToken:", accessToken);
 
       // Step 2: Get product
       const product = await getProductFromSupabase();
+      console.log("Product:", product);
 
       // Step 3: Price product
       await priceProduct(accessToken, product);
