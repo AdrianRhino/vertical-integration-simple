@@ -1364,7 +1364,6 @@ const PricingTable = ({
           }
         }
       }
-      }
 
       if (!found) {
         console.log(`❌ SKU ${item.sku} (normalized: ${normalizedItemSku}) not found in priceData`);
@@ -1376,6 +1375,13 @@ const PricingTable = ({
     }
 
     // Validation: Check if all requested SKUs were matched
+    // Ensure matchedSkus is defined (defensive check)
+    if (!matchedSkus) {
+      console.error("❌ matchedSkus is undefined - this should not happen");
+      setItems(updatedItems);
+      return;
+    }
+    
     const unmatchedCount = items.length - matchedSkus.size;
     if (unmatchedCount > 0) {
       console.warn(`⚠️ ${unmatchedCount} requested SKU(s) were not found in SRS response`);
