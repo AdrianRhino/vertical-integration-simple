@@ -4,7 +4,7 @@
  * Input: Context with abcAccessToken, fullOrder, optional environment
  * Filter: Validates access token and fullOrder exist
  * Transform: Gets API base URL from credentials config, formats line items
- * Store: N/A
+ * Store: N/A 
  * Output: Pricing data from ABC API
  * Loop: Self-healing - reads environment from order config if not provided
  */

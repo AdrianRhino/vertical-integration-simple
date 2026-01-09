@@ -16,6 +16,8 @@ import PricingTable from "./pages/02-pricingTable";
 import DeliveryForm from "./pages/03-deliveryForm";
 import ReviewSubmit from "./pages/04-reviewSubmit";
 import OrderSuccessPage from "./pages/05-successPage";
+import API_Test_Page from "./pages/06-apiTestPage";
+
 
 // Define the extension to be run within the Hubspot CRM
 hubspot.extend(({ context, runServerlessFunction, actions }) => (
@@ -29,7 +31,7 @@ hubspot.extend(({ context, runServerlessFunction, actions }) => (
 ));
 
 // Simple page numbers - just a list
-const MAIN_PAGES = [0, 1, 2, 3, 4];
+const MAIN_PAGES = [0, 1, 2, 3, 4, 6];
 
 // Define the Extension component, taking in runServerless, context, & sendAlert as props
 const Extension = ({ context, runServerless, sendAlert, fetchCrmObjectProperties }) => {
@@ -54,7 +56,7 @@ const Extension = ({ context, runServerless, sendAlert, fetchCrmObjectProperties
     });
 
      // Simple page number
-  const [currentPage, setCurrentPage] = useState(0);
+  const [currentPage, setCurrentPage] = useState(6);
   const [canGoNext, setCanGoNext] = useState(false);
   const [statusTag, setStatusTag] = useState({ type: "warning", text: "Draft" });
 
@@ -246,6 +248,18 @@ useEffect(() => {
             setCanGoNext={setCanGoNext}
           />
         );
+        case 6:
+        return (
+          <API_Test_Page
+          setOrder={setOrder}
+          order={order}
+          context={context}
+          setStatus={setStatus}
+          clearOrder={clearOrder}
+          setCurrentPage={setCurrentPage}
+          setCanGoNext={setCanGoNext}
+          />
+        );
       default:
         return <Text>Page not found</Text>;
     }
@@ -317,12 +331,15 @@ useEffect(() => {
     }
   };
 
-  // Simple: show save draft button on pages 0, 1, 2, 3 (not on review page 4 or success page 5)
-  const showSaveButton = currentPage !== 4 && currentPage !== 5;
+  // Simple: show save draft button on pages 0, 1, 2, 3 (not on review page 4, success page 5, or test page 6)
+  const showSaveButton = currentPage !== 4 && currentPage !== 5 && currentPage !== 6;
 
   // Simple: check if we can go to next page
   const isLastPage = currentPage === 4;
   const canGoToNext = canGoNext && !isLastPage && MAIN_PAGES.includes(currentPage);
+  
+  // For page 6 (API test page), disable navigation buttons
+  const isTestPage = currentPage === 6;
 
 
 
@@ -351,6 +368,11 @@ useEffect(() => {
         {currentPage === 5 ? (
           <Button onClick={() => {
             clearOrder();
+            setCurrentPage(0);
+            setCanGoNext(false);
+          }}>Back to Order Start</Button>
+        ) : isTestPage ? (
+          <Button onClick={() => {
             setCurrentPage(0);
             setCanGoNext(false);
           }}>Back to Order Start</Button>

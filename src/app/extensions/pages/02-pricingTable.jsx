@@ -65,35 +65,45 @@ const PricingTable = ({
             return {
               ...item,
               uom: "SQ",
-              uoms: item.uoms && item.uoms.includes("SQ") ? item.uoms : (item.uoms || []).concat(["SQ"]).filter((v, i, a) => a.indexOf(v) === i)
+              uoms: item.uoms && item.uoms.includes("SQ")
+                ? item.uoms
+                : (item.uoms || []).concat(["SQ"]).filter((v, i, a) => a.indexOf(v) === i)
             };
           }
           if (titleUpper.includes("/BD") || titleUpper.includes("PER BD") || titleUpper.includes("PER BUNDLE") || titleUpper.includes("BUNDLE")) {
             return {
               ...item,
               uom: "BNDL",
-              uoms: item.uoms && item.uoms.includes("BNDL") ? item.uoms : (item.uoms || []).concat(["BNDL"]).filter((v, i, a) => a.indexOf(v) === i)
+              uoms: item.uoms && item.uoms.includes("BNDL")
+                ? item.uoms
+                : (item.uoms || []).concat(["BNDL"]).filter((v, i, a) => a.indexOf(v) === i)
             };
           }
           if (titleUpper.includes("ROLL") || titleUpper.includes("/RL")) {
             return {
               ...item,
               uom: "RL",
-              uoms: item.uoms && item.uoms.includes("RL") ? item.uoms : (item.uoms || []).concat(["RL"]).filter((v, i, a) => a.indexOf(v) === i)
+              uoms: item.uoms && item.uoms.includes("RL")
+                ? item.uoms
+                : (item.uoms || []).concat(["RL"]).filter((v, i, a) => a.indexOf(v) === i)
             };
           }
           if (titleUpper.includes("LINEAR") || titleUpper.includes("/LF")) {
             return {
               ...item,
               uom: "LF",
-              uoms: item.uoms && item.uoms.includes("LF") ? item.uoms : (item.uoms || []).concat(["LF"]).filter((v, i, a) => a.indexOf(v) === i)
+              uoms: item.uoms && item.uoms.includes("LF")
+                ? item.uoms
+                : (item.uoms || []).concat(["LF"]).filter((v, i, a) => a.indexOf(v) === i)
             };
           }
           if (titleUpper.includes("BOX") || titleUpper.includes("/BX")) {
             return {
               ...item,
               uom: "BX",
-              uoms: item.uoms && item.uoms.includes("BX") ? item.uoms : (item.uoms || []).concat(["BX"]).filter((v, i, a) => a.indexOf(v) === i)
+              uoms: item.uoms && item.uoms.includes("BX")
+                ? item.uoms
+                : (item.uoms || []).concat(["BX"]).filter((v, i, a) => a.indexOf(v) === i)
             };
           }
         }
@@ -954,6 +964,12 @@ const PricingTable = ({
     const supplier = (order.supplier || "").toLowerCase();
     if (!supplier) return;
 
+    // Transform order structure: pricing functions expect fullOrder.fullOrderItems
+    const fullOrder = {
+      ...order,
+      fullOrderItems: order.items || [],
+    };
+
     let response;
     try {
       if (supplier === "abc") {
@@ -962,16 +978,11 @@ const PricingTable = ({
         const authEnvironment = TEST_PRODUCTION ? "prod" : null;
         console.log("🔍 TEST_PRODUCTION:", TEST_PRODUCTION, "authEnvironment:", authEnvironment);
         
+        // WORKAROUND: Embed environment in fullOrder since HubSpot parameter passing doesn't work
+        fullOrder._environment = TEST_PRODUCTION ? "prod" : "sandbox";
+        
         // WORKAROUND: Get token with environment, but also pass it via fullOrder
         const abcAccessToken = await getABCAccessToken(authEnvironment);
-        
-        // Transform order structure: pricing functions expect fullOrder.fullOrderItems
-        // WORKAROUND: Embed environment in fullOrder since HubSpot parameter passing doesn't work
-        const fullOrder = {
-          ...order,
-          fullOrderItems: order.items || [],
-          _environment: TEST_PRODUCTION ? "prod" : "sandbox" // Embed environment in order object
-        };
         if (!abcAccessToken) {
           console.error("❌ Cannot get pricing: ABC authentication failed");
           // Mark all items with authentication error
@@ -1306,53 +1317,53 @@ const PricingTable = ({
         found = true;
         matchedSkus.add(normalizedItemSku);
         console.log(`✅ Found match for SKU ${item.sku} (normalized: ${normalizedItemSku}):`, JSON.stringify(priceItem, null, 2));
-          
-          if (priceItem.error || (priceItem.unitPrice === 0 && priceItem.message)) {
+
+        if (priceItem.error || (priceItem.unitPrice === 0 && priceItem.message)) {
+          updatedItems.push({
+            ...item,
+            pricingError: priceItem.message || "SKU not found - call for pricing",
+          });
+        } else {
+          const extractedPrice = extractPrice(priceItem);
+
+          if (extractedPrice !== null && extractedPrice > 0) {
+            // ✅ Validate UOM match
+            const responseUom = (priceItem.uom || priceItem.unitOfMeasure || "").toUpperCase().trim();
+            const requestedUom = (item.uom || "").toUpperCase().trim();
+            const uomMatches = !responseUom || responseUom === requestedUom;
+
+            if (!uomMatches) {
+              console.warn(`⚠️ UOM mismatch for SKU ${item.sku}: requested "${requestedUom}", got "${responseUom}"`);
+            }
+
+            const finalUom = responseUom || requestedUom;
+
+            // ✅ Validate quantity
+            const responseQty = priceItem.quantity || priceItem.qty;
+            const requestedQty = Number(item.qty) || 1;
+            if (responseQty && Number(responseQty) !== requestedQty) {
+              console.warn(`⚠️ Quantity mismatch for SKU ${item.sku}: requested ${requestedQty}, priced for ${responseQty}`);
+            }
+
+            console.log(`💰 Price found for SKU ${item.sku} (UOM ${finalUom}, Qty ${requestedQty}): $${extractedPrice}`);
+
             updatedItems.push({
               ...item,
-              pricingError: priceItem.message || "SKU not found - call for pricing",
+              unitPrice: extractedPrice,
+              uom: finalUom,
+              linePrice: requestedQty * extractedPrice,
+              pricingError: null,
+              pricingFetched: true,
             });
           } else {
-            const extractedPrice = extractPrice(priceItem);
-            
-            if (extractedPrice !== null && extractedPrice > 0) {
-              // ✅ Validate UOM match
-              const responseUom = (priceItem.uom || priceItem.unitOfMeasure || "").toUpperCase().trim();
-              const requestedUom = (item.uom || "").toUpperCase().trim();
-              const uomMatches = !responseUom || responseUom === requestedUom;
-              
-              if (!uomMatches) {
-                console.warn(`⚠️ UOM mismatch for SKU ${item.sku}: requested "${requestedUom}", got "${responseUom}"`);
-              }
-              
-              const finalUom = responseUom || requestedUom;
-              
-              // ✅ Validate quantity
-              const responseQty = priceItem.quantity || priceItem.qty;
-              const requestedQty = Number(item.qty) || 1;
-              if (responseQty && Number(responseQty) !== requestedQty) {
-                console.warn(`⚠️ Quantity mismatch for SKU ${item.sku}: requested ${requestedQty}, priced for ${responseQty}`);
-              }
-              
-              console.log(`💰 Price found for SKU ${item.sku} (UOM ${finalUom}, Qty ${requestedQty}): $${extractedPrice}`);
-              
-              updatedItems.push({
-                ...item,
-                unitPrice: extractedPrice,
-                uom: finalUom,
-                linePrice: requestedQty * extractedPrice,
-                pricingError: null,
-                pricingFetched: true,
-              });
-            } else {
-              console.log(`⚠️ No valid price found for SKU ${item.sku}, priceItem:`, JSON.stringify(priceItem, null, 2));
-              updatedItems.push({
-                ...item,
-                pricingError: "Price unavailable",
-              });
-            }
+            console.log(`⚠️ No valid price found for SKU ${item.sku}, priceItem:`, JSON.stringify(priceItem, null, 2));
+            updatedItems.push({
+              ...item,
+              pricingError: "Price unavailable",
+            });
           }
         }
+      }
       }
 
       if (!found) {
@@ -1454,11 +1465,12 @@ const PricingTable = ({
           pricingError: "SKU not found - call for pricing",
         });
       }
+       console.log("✅ Updated items:", updatedItems.length);
+    setItems(updatedItems);
     }
 
-    console.log("✅ Updated items:", updatedItems.length);
-    setItems(updatedItems);
-  };
+   
+  
 
   // Search when query changes (with delay)
   useEffect(() => {
@@ -1520,25 +1532,25 @@ const PricingTable = ({
                       value: code,
                       tooltip: units[code]?.toolTip || code,
                     }));
-                    
+
                     // Optionally prioritize product-specific UOMs by moving them to the top
                     const productUoms = line.uoms || [];
                     if (productUoms.length > 0) {
                       const productUnits = [];
                       const otherUnits = [];
-                      
-                      allUnits.forEach(unit => {
+
+                      allUnits.forEach((unit) => {
                         if (productUoms.includes(unit.value)) {
                           productUnits.push(unit);
                         } else {
                           otherUnits.push(unit);
                         }
                       });
-                      
+
                       // Return product-specific units first, then others
                       return [...productUnits, ...otherUnits];
                     }
-                    
+
                     return allUnits;
                   })()}
                   onChange={(newUom) => {
