@@ -49,16 +49,16 @@ exports.main = async (context) => {
         owner.teams &&
         owner.teams.some(
           (team) =>
-            team.name === "9.0 - Director of Production" ||
-            team.name === "9.1 - Residential Project Manager"
+            team.name === "[9.0] Director of Production" ||
+            team.name === "[9.2] Residential Project Manager"
         )
     );
     //console.log("Production team:", productionTeam);
 
     // I want to make an array of the production team with pairs of the id as the value, and the label as the first and last name
     const productionTeamArray = productionTeam.map((owner) => ({
-      value: owner.id,
-      label: `${owner.firstName} ${owner.lastName}`,
+      value: owner.id || "Other",
+      label: `${owner.firstName} ${owner.lastName}` || "Other",
     }));
     //console.log("Production team array:", productionTeamArray);
 
