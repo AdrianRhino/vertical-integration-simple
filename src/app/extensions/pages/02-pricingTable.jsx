@@ -1474,6 +1474,7 @@ const PricingTable = ({
        console.log("✅ Updated items:", updatedItems.length);
     setItems(updatedItems);
     }
+  };
 
    
   
@@ -1493,7 +1494,7 @@ const PricingTable = ({
   }, [searchQuery, order.supplier]);
 
   const totalPrice = calculateTotal();
-}
+
 
   return (
     <>

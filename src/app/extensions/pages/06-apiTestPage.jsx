@@ -56,7 +56,7 @@ const API_Test_Page = ({
       setCurrentStep("Logging into ABC Sandbox...");
       const response = await hubspot.serverless("abcLogin", {
         parameters: {
-          environment: "sandbox",
+          environment: "prod",
         },
       });
       const body = extractBody(response);
@@ -66,7 +66,7 @@ const API_Test_Page = ({
           success: true,
           access_token: body.access_token.substring(0, 10) + "...",
           expires_in: body.expires_in,
-          environment: "sandbox",
+          environment: "prod",
         });
         return body.access_token;
       } else {
