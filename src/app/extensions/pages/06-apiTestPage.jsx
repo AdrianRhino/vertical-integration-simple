@@ -19,7 +19,7 @@ import { hubspot } from "@hubspot/ui-extensions";
 // STORE: ABC request payload
 // OUTPUT: send to sandbox API
 // LOOP: display result, allow retry
-import SrsLogin from '../test-apis/srs/sandbox/INPUT/srs-login';
+import SrsLogin from '../test-apis/srs/sandbox/01-LOGIN/srs-login';
 
 const API_Test_Page = ({
   setOrder,
