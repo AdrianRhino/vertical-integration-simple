@@ -1,0 +1,79 @@
+{
+  "suppliers": {
+    "ABC": {
+      "name": "ABC Supply",
+      "endpoints": {
+        "login": {
+          "serverlessFunction": "abcLogin",
+          "sandbox": { "enabled": true, "environment": null },
+          "production": { "enabled": true, "environment": "prod" },
+          "description": "ABC OAuth authentication"
+        },
+        "pricing": {
+          "serverlessFunction": "abcPricing",
+          "sandbox": { "enabled": true, "environment": null },
+          "production": { "enabled": true, "environment": "prod" },
+          "description": "ABC pricing API",
+          "requiresAuth": true,
+          "authEndpoint": "login"
+        },
+        "products": {
+          "serverlessFunction": "supplierProducts",
+          "sandbox": { "enabled": true, "supplier": "ABC" },
+          "production": { "enabled": true, "supplier": "ABC" },
+          "description": "ABC products from Supabase"
+        }
+      }
+    },
+    "SRS": {
+      "name": "SRS Distribution",
+      "endpoints": {
+        "login": {
+          "serverlessFunction": "srsLogin",
+          "sandbox": { "enabled": true, "environment": null },
+          "production": { "enabled": true, "environment": "prod" },
+          "description": "SRS OAuth authentication"
+        },
+        "pricing": {
+          "serverlessFunction": "srsPricing",
+          "sandbox": { "enabled": true, "environment": null },
+          "production": { "enabled": true, "environment": "prod" },
+          "description": "SRS pricing API",
+          "requiresAuth": true,
+          "authEndpoint": "login"
+        },
+        "products": {
+          "serverlessFunction": "supplierProducts",
+          "sandbox": { "enabled": true, "supplier": "SRS" },
+          "production": { "enabled": true, "supplier": "SRS" },
+          "description": "SRS products from Supabase"
+        }
+      }
+    },
+    "BEACON": {
+      "name": "Beacon Building Products",
+      "endpoints": {
+        "login": {
+          "serverlessFunction": "beaconLogin",
+          "sandbox": { "enabled": true, "environment": null },
+          "production": { "enabled": true, "environment": "prod" },
+          "description": "Beacon cookie-based authentication"
+        },
+        "pricing": {
+          "serverlessFunction": "beaconPricing",
+          "sandbox": { "enabled": true, "environment": null },
+          "production": { "enabled": true, "environment": "prod" },
+          "description": "Beacon pricing API",
+          "requiresAuth": true,
+          "authEndpoint": "login"
+        },
+        "products": {
+          "serverlessFunction": "supplierProducts",
+          "sandbox": { "enabled": true, "supplier": "BEACON" },
+          "production": { "enabled": true, "supplier": "BEACON" },
+          "description": "Beacon products from Supabase"
+        }
+      }
+    }
+  }
+}

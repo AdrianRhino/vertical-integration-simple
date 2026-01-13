@@ -56,7 +56,7 @@ const Extension = ({ context, runServerless, sendAlert, fetchCrmObjectProperties
     });
 
      // Simple page number
-  const [currentPage, setCurrentPage] = useState(6);
+  const [currentPage, setCurrentPage] = useState(0);
   const [canGoNext, setCanGoNext] = useState(false);
   const [statusTag, setStatusTag] = useState({ type: "warning", text: "Draft" });
 
