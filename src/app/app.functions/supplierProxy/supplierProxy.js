@@ -67,11 +67,23 @@ exports.main = async (context = {}) => {
     };
   } catch (error) {
     console.error("supplierProxy error:", error);
+    
+    // Try to extract status code from error message (e.g., "ABC Pricing API error (500): ...")
+    let statusCode = 500;
+    const errorMessage = error.message || String(error);
+    const statusMatch = errorMessage.match(/\((\d+)\)/);
+    if (statusMatch) {
+      const extractedStatus = parseInt(statusMatch[1], 10);
+      if (extractedStatus >= 400 && extractedStatus < 600) {
+        statusCode = extractedStatus;
+      }
+    }
+    
     return {
-      statusCode: 500,
+      statusCode: statusCode,
       body: {
         success: false,
-        error: error.message || String(error),
+        error: errorMessage,
       },
     };
   }

@@ -53,29 +53,43 @@ async function getPricing(env, payload) {
     throw new Error("ABC: No valid items to price");
   }
   
-  const response = await axios.post(
-    `${config.baseUrl}/api/pricing/v2/prices`,
-    {
-      branchNumber: "461",
-      shipToNumber: "2063975-2",
-      requestId: `Pricing-${Date.now()}`,
-      purpose: "estimating",
-      lines: formattedItems,
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-      },
-    }
-  );
-  
-  return {
-    success: true,
-    data: response.data,
-    environment: config.environment,
+  const pricingUrl = `${config.baseUrl}/api/pricing/v2/prices`;
+  const requestData = {
+    branchNumber: "461",
+    shipToNumber: "2063975-2",
+    requestId: `Pricing-${Date.now()}`,
+    purpose: "estimating",
+    lines: formattedItems,
   };
+  
+  try {
+    const response = await axios.post(
+      pricingUrl,
+      requestData,
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      }
+    );
+    
+    return {
+      success: true,
+      data: response.data,
+      environment: config.environment,
+    };
+  } catch (error) {
+    // Extract ABC's error message from response
+    const errorMessage = error.response?.data?.error || 
+                        error.response?.data?.message || 
+                        error.response?.statusText || 
+                        error.message;
+    
+    // Throw error with ABC's actual message
+    throw new Error(`ABC Pricing API error (${error.response?.status || 'unknown'}): ${errorMessage}`);
+  }
 }
 
 // Step 3: Login action (returns token)
