@@ -59,6 +59,10 @@
     "generateAndUploadOrderPDF": {
       "file": "suppliers/order/generateAndUploadOrderPDF.js",
       "secrets": ["HUBSPOT_API_KEY2"]
+    },
+    "supplierProxy": {
+      "file": "supplierProxy/supplierProxy.js",
+      "secrets": []
     }
   }
 }

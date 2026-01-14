@@ -7,14 +7,8 @@
 // LOOP: Allow individual endpoint testing
 
 import { useState } from "react";
-import {
-  Text,
-  Heading,
-  Button,
-  Divider,
-} from "@hubspot/ui-extensions";
+import { Text, Heading, Button, Divider } from "@hubspot/ui-extensions";
 import { hubspot } from "@hubspot/ui-extensions";
-
 
 const API_Test_Page = ({
   setOrder,
@@ -25,63 +19,57 @@ const API_Test_Page = ({
   setCurrentPage,
   setCanGoNext,
 }) => {
-  
-    return (
-      <>
-      <Heading>API Test Page</Heading>
-      <Divider />
-      <Text>ABC Login</Text>
-      <Button>Sandbox Login</Button>
-      <Button>Production Login</Button>
-      <Text></Text>
-      <Text>ABC Product</Text>
-      <Button>Sandbox Product</Button>
-      <Button>Production Product</Button>
-      <Text></Text>
-      <Text>ABC Order</Text>
-      <Button>Sandbox Order</Button>
-      <Button>Production Order</Button>
-      <Text></Text>
-      <Text>ABC Pricing</Text>
-      <Button>Sandbox Pricing</Button>
-      <Button>Production Pricing</Button>
-      <Text></Text>
-      <Divider />
-      <Text>SRS Login</Text>
-      <Button>Sandbox Login</Button>
-      <Button>Production Login</Button>
-      <Text></Text>
-      <Text>SRS Product</Text>
-      <Button>Sandbox Product</Button>
-      <Button>Production Product</Button>
-      <Text></Text>
-      <Text>SRS Order</Text>
-      <Button>Sandbox Order</Button>
-      <Button>Production Order</Button>
-      <Text></Text>
-      <Text>SRS Pricing</Text>
-      <Button>Sandbox Pricing</Button>
-      <Button>Production Pricing</Button>
-      <Text></Text>
-      <Divider />
-      <Text>Beacon Login</Text>
-      <Button>Sandbox Login</Button>
-      <Button>Production Login</Button>
-      <Text></Text>
-      <Text>Beacon Product</Text>
-      <Button>Sandbox Product</Button>
-      <Button>Production Product</Button>
-      <Text></Text>
-      <Text>Beacon Pricing</Text>
-      <Button>Sandbox Pricing</Button>
-      <Button>Production Pricing</Button>
-      <Text></Text>
-      <Text>Beacon Order</Text>
-      <Button>Sandbox Order</Button>
-      <Button>Production Order</Button>
-      <Text></Text>
-      </>
-    );
+  const [AbcAccessToken, setAbcAccessToken] = useState(null);
+
+  const testAbcLogin = async (env) => {
+    const loginResponse = await hubspot.serverless("supplierProxy", {
+      parameters: {
+        supplierKey: "ABC",
+        env: env === "prod" ? "prod" : "sandbox",
+        action: "login",
+        payload: {},
+      },
+    });
+    console.log(loginResponse);
+    setAbcAccessToken(loginResponse.body.access_token);
   };
+
+  const testAbcPricing = async (env) => {
+    const pricingResponse = await hubspot.serverless("supplierProxy", {
+      parameters: {
+        supplierKey: "ABC",
+        env: env === "prod" ? "prod" : "sandbox",
+        action: "getPricing",
+        payload: {
+          fullOrder: {
+            fullOrderItems: [
+              {
+                id: "1",
+                itemNumber: "0110004585",
+                quantity: 10,
+                uom: "EA",
+              },
+            ],
+          },
+        },
+      },
+    });
+    console.log(pricingResponse);
+  };
+
+  return (
+    <>
+      <Heading>API Test Page</Heading>
+      <Button onClick={() => testAbcLogin("prod")}>
+        Production Login ABC Test
+      </Button>
+      <Text></Text>
+      <Button onClick={() => testAbcPricing("prod")}>
+        Production Pricing ABC Test
+      </Button>
+      <Text></Text>
+    </>
+  );
+};
 
 export default API_Test_Page;
