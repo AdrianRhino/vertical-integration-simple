@@ -61,6 +61,20 @@ exports.main = async (context = {}) => {
     // Call the supplier action
     const result = await supplier[action](env, payload);
 
+    // Check for error status in response body (e.g., ABC returns 200 but status.code === "Error")
+    if (result?.data?.lines) {
+      const errorLine = result.data.lines.find(line => line.status?.code === "Error");
+      if (errorLine) {
+        return {
+          statusCode: 400,
+          body: {
+            success: false,
+            error: errorLine.status.message || "Pricing error",
+          },
+        };
+      }
+    }
+
     return {
       statusCode: 200,
       body: result,
@@ -68,16 +82,10 @@ exports.main = async (context = {}) => {
   } catch (error) {
     console.error("supplierProxy error:", error);
     
-    // Try to extract status code from error message (e.g., "ABC Pricing API error (500): ...")
-    let statusCode = 500;
+    // Extract status code from error message if present (e.g., "error (500): ...")
     const errorMessage = error.message || String(error);
     const statusMatch = errorMessage.match(/\((\d+)\)/);
-    if (statusMatch) {
-      const extractedStatus = parseInt(statusMatch[1], 10);
-      if (extractedStatus >= 400 && extractedStatus < 600) {
-        statusCode = extractedStatus;
-      }
-    }
+    const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : 500;
     
     return {
       statusCode: statusCode,
